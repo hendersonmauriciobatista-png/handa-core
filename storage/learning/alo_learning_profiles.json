@@ -1,0 +1,15 @@
+{
+  "updated_at": "2026-04-03T00:23:42.509928",
+  "profiles": {
+    "UNIUSDC": {
+      "symbol": "UNIUSDC",
+      "attempts": 2,
+      "approvals": 1,
+      "rejections": 0,
+      "confidence_score": 0.5,
+      "status": "MEDIUM_CONFIDENCE",
+      "created_at": "2026-04-03T00:14:06.275039",
+      "updated_at": "2026-04-03T00:23:42.509928"
+    }
+  }
+}

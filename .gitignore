@@ -1,5 +1,17 @@
+# ambiente
+.venv/
+.env
+
+# logs e dados
+logs/
 storage/
+dist/
 dist/storage/
 *.jsonl
-.venv/
+
+# cache
 __pycache__/
+*.pyc
+
+# vscode
+.vscode/

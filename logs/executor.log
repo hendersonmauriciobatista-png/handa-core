@@ -1,2 +1,0 @@
-{"event": "EXECUTION_START", "request_id": "REQ-EXEC-1", "action_intent": "SAFE_STOP", "decision_reason": "SAFE_STOP_ALLOWED", "timestamp": "2026-02-04T02:27:18.918361+00:00"}
-{"event": "EXECUTION_SUCCESS", "request_id": "REQ-EXEC-1", "action_intent": "SAFE_STOP", "timestamp": "2026-02-04T02:27:18.918361+00:00"}

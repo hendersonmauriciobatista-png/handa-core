@@ -150,20 +150,20 @@ class DecisionEngine:
 
         # 1. BLOQUEIO DE REENTRADA
         if self.last_traded_symbol == pair:
-           reentry_allowed = (
-               float(snapshot.ema_fast) > float(snapshot.ema_slow)
-               and float(snapshot.volume_ratio) >= 1.2
-               and 45 <= float(snapshot.rsi) <= 68
-        )
-
-        if not reentry_allowed:
-            logger.info(f"[Engine] BLOQUEADO POR REENTRADA IMEDIATA: {pair}")
-            return None
-        else:
-            logger.info(
-                f"[Engine] REENTRADA CONTROLADA PERMITIDA: {pair} | "
-                f"volume={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f}"
+            reentry_allowed = (
+                float(snapshot.ema_fast) > float(snapshot.ema_slow)
+                and float(snapshot.volume_ratio) >= 1.2
+                and 45 <= float(snapshot.rsi) <= 68
             )
+
+            if not reentry_allowed:
+                logger.info(f"[Engine] BLOQUEADO POR REENTRADA IMEDIATA: {pair}")
+                return None
+            else:
+                logger.info(
+                    f"[Engine] REENTRADA CONTROLADA PERMITIDA: {pair} | "
+                    f"volume={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f}"
+                )
             
         # 2. BLOQUEIO POR PENALTY
         penalty = self.penalty_map.get(pair, 0)

@@ -5,7 +5,8 @@
 # + LC1E NON_EXECUTION NO REFINE
 # ============================================================
 from core.alo_profile import AloProfileUpdater
-
+from core.alo.dynamic_core_adapter import AloDynamicCoreAdapter
+from core.alo.dynamic_core_engine import AloDynamicCoreEngine
 
 class MarketRankingEngine:
     """
@@ -19,6 +20,9 @@ class MarketRankingEngine:
         self.token_ranker = token_ranker
         self.lc1e = lc1e
         self.alo_profile_updater = AloProfileUpdater()
+        self.dynamic_core_adapter = AloDynamicCoreAdapter()
+        self.dynamic_core_engine = AloDynamicCoreEngine()
+
 
         self._radar_summary_local = {
             "STRUCTURAL_BLOCK": 0,
@@ -342,14 +346,41 @@ class MarketRankingEngine:
                             f"momentum={momentum} | volume_ratio={volume_ratio:.2f} | rsi={rsi:.2f}"
                         )
                     else:
-                        self._radar_summary_local["NO_UPTREND"] += 1
+                        # ======================================================
+                        # 🔥 DYNAMIC CORE CHECK (ANTES DE REJEITAR)
+                        # ======================================================
+                        dynamic_allow = False
 
-                        self._log_non_execution(
-                            token,
-                            "NO_UPTREND",
-                            "TREND_INVALID",
-                        )
-                        continue
+                        try:
+                            if hasattr(self, "dynamic_core_adapter") and hasattr(self, "dynamic_core_engine"):
+                                dynamic_input = self.dynamic_core_adapter.build_input(
+                                    snapshot=analysis,
+                                    profile=None,
+                                    system_ctx=None,
+                                    mqii_data=token.get("market_context"),
+                                )
+
+                                dynamic_result = self.dynamic_core_engine.evaluate(dynamic_input)
+
+                                if dynamic_result.dynamic_mode in ("CAUTION", "TRADE_OK", "PREMIUM_OK"):
+                                    dynamic_allow = True
+                                    print(
+                                        f"[RADAR DYNAMIC] {symbol} LIBERADO | mode={dynamic_result.dynamic_mode} "
+                                        f"| score={dynamic_result.confidence_score:.4f}"
+                                    )
+
+                        except Exception as e:
+                            print(f"[RADAR DYNAMIC ERROR] {symbol} erro={e}")
+
+                        if not dynamic_allow:
+                            self._radar_summary_local["NO_UPTREND"] += 1
+
+                            self._log_non_execution(
+                                token,
+                                "NO_UPTREND",
+                                "TREND_INVALID",
+                            )
+                            continue
 
                 # ------------------------------------------------
                 # MOMENTUM

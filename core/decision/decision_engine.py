@@ -16,6 +16,9 @@ from core.dynamic_policy.lc1_feedback_adapter import LC1FeedbackAdapter
 from core.dynamic_policy.policy_models import MarketContext, SystemContext
 from core.decision.trade_qualifier import TradeQualifier
 from core.alo_decision import AloDecisionLayer, AloDecisionMode
+from core.alo.dynamic_core_adapter import AloDynamicCoreAdapter
+from core.alo.dynamic_core_engine import AloDynamicCoreEngine
+
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +95,10 @@ class DecisionEngine:
         self.position_manager = None
         self.alo = None
         self.alo_decision = AloDecisionLayer(mode=AloDecisionMode.OBSERVER)
+
+        self.dynamic_core_adapter = AloDynamicCoreAdapter()
+        self.dynamic_core_engine = AloDynamicCoreEngine()
+
 
         # ==========================================================
         # 🔥 H&A MEMORY (INJETADO - NÃO REMOVER)
@@ -422,6 +429,63 @@ class DecisionEngine:
 
             except Exception as e:
                 logger.warning(f"[ALO DECISION OBS ERROR] {e}")
+
+
+        # ==========================================================
+        # 🔥 ALO DYNAMIC CORE (OBSERVER ONLY)
+        # ==========================================================
+        if self.dynamic_core_adapter is not None and self.dynamic_core_engine is not None:
+            try:
+                dynamic_profile = None
+                if self.alo is not None:
+                    try:
+                        dynamic_profile = self.alo.get_symbol_profile(pair)
+                    except Exception as e:
+                        logger.warning(f"[ALO DYNAMIC CORE PROFILE ERROR] {e}")
+
+                dynamic_mqii = getattr(self, "mqii_quality", None)
+
+                dynamic_input = self.dynamic_core_adapter.build_input(
+                    snapshot=snapshot,
+                    profile=dynamic_profile,
+                    system_ctx=system_ctx,
+                    mqii_data=dynamic_mqii,
+                )
+
+                dynamic_result = self.dynamic_core_engine.evaluate(dynamic_input)
+
+                signal_reasons.append(
+                    f"ALO Dynamic mode: {dynamic_result.dynamic_mode}"
+                )
+                signal_reasons.append(
+                    f"ALO Dynamic confidence: {dynamic_result.confidence_score:.4f}"
+                )
+
+                if dynamic_result.override_permission:
+                    signal_reasons.append("ALO Dynamic override permission: TRUE")
+
+                if dynamic_result.block_reason:
+                    signal_reasons.append(
+                        f"ALO Dynamic block reason: {dynamic_result.block_reason}"
+                    )
+
+                if dynamic_result.reasons:
+                    signal_reasons.append(
+                        "ALO Dynamic reasons: " + ", ".join(dynamic_result.reasons)
+                    )
+
+                logger.info(
+                    f"[ALO DYNAMIC CORE] {pair} | "
+                    f"mode={dynamic_result.dynamic_mode} | "
+                    f"score={dynamic_result.confidence_score:.4f} | "
+                    f"label={dynamic_result.confidence_label} | "
+                    f"risk_weight={dynamic_result.risk_weight:.2f} | "
+                    f"override={dynamic_result.override_permission} | "
+                    f"block_reason={dynamic_result.block_reason}"
+                )
+
+            except Exception as e:
+                logger.warning(f"[ALO DYNAMIC CORE ERROR] {e}")
 
         # ==========================================================
         # 🔥 ALO GATE (FILTRO INTELIGENTE + EXCEÇÃO CONTROLADA)

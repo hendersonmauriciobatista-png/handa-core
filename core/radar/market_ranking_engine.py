@@ -76,6 +76,26 @@ class MarketRankingEngine:
 
         try:
             analysis = token.get("analysis", {}) or {}
+
+            # ==========================================================
+            # 🔥 FILTRO: NÃO ENSINAR O ALO COM REJEIÇÕES DO RADAR
+            # ==========================================================
+            ignored_for_alo_learning = {
+                "NO_UPTREND",
+                "SCORE_BAIXO",
+                "QUALITY_FILTER",
+                "RSI_EXTREMO",
+                "VOLUME_EXTREMO",
+                "STRUCTURAL_BLOCK",
+            }
+
+            if str(reason).strip().upper() in ignored_for_alo_learning:
+                print(
+                    f"[ALO LEARNING IGNORE] symbol={token.get('symbol')} "
+                    f"reason={reason}"
+                )
+                return
+
             snapshot = token.get("snapshot")
             symbol = str(token.get("symbol") or token.get("pair") or "").strip().upper()
 

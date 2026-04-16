@@ -157,12 +157,21 @@ class DecisionEngine:
 
         # 1. BLOQUEIO DE REENTRADA
         if self.last_traded_symbol == pair:
+
+            recent_loss = getattr(self, "last_trade_was_loss", False)
+
             reentry_allowed = (
                 float(snapshot.ema_fast) > float(snapshot.ema_slow)
                 and float(snapshot.volume_ratio) >= 1.2
                 and 45 <= float(snapshot.rsi) <= 68
             )
 
+            # 🔥 BLOQUEIO INTELIGENTE PÓS-LOSS
+            if recent_loss and not reentry_allowed:
+                logger.info(f"[Engine] BLOQUEADO POR LOSS RECENTE (setup fraco): {pair}")
+                return None
+
+            # comportamento original
             if not reentry_allowed:
                 logger.info(f"[Engine] BLOQUEADO POR REENTRADA IMEDIATA: {pair}")
                 return None
@@ -512,17 +521,23 @@ class DecisionEngine:
                     )
 
                     premium_setup = (
-                        confidence >= 0.75
+                        confidence >= 0.70
                         and trend_raw.endswith("UPTREND")
                         and momentum_raw.endswith("BULLISH")
-                        and volume_state_raw == "HIGH"
-                        and market_state_raw
-                        in (
-                            "BULLISH_STRONG",
-                            "AGGRESSIVE_OK",
-                            "TRADE_OK",
+                        and (
+                            volume_state_raw in ("HIGH", "MODERATE")
+                        )
+                        and (
+                            market_state_raw in (
+                                "BULLISH_STRONG",
+                                "AGGRESSIVE_OK",
+                                "TRADE_OK",
+                                "BULLISH_WEAK",
+                            )
                         )
                     )
+                        
+                    
 
                     mqii_state = ""
                     mqii_score = 0.0
@@ -550,7 +565,11 @@ class DecisionEngine:
                         and market_ok
                     )
 
-                    if alo_status in ("BLOCKED", "REJECTED") and alo_confidence < 0.40:
+                    if (
+                        alo_status in ("BLOCKED", "REJECTED")
+                        and alo_confidence < 0.40
+                        and getattr(profile, "total_events", 0) >= 10
+                    ):
                         if allow_premium_override:
                             logger.info(
                                 f"[ALO GATE] CAUTION_PASS {pair} | "

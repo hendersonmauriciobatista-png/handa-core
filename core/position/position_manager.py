@@ -378,6 +378,17 @@ class PositionManager:
         pos.status = PositionStatus.CLOSED
         self._history.append(pos)
 
+        # ======================================================
+        # 🔥 REGISTRO PARA DECISION ENGINE (ANTI-REENTRADA BURRA)
+        # ======================================================
+        try:
+            if hasattr(self, "decision_engine") and self.decision_engine:
+                self.decision_engine.last_trade_was_loss = net_usdc < 0
+                self.decision_engine.last_traded_symbol = symbol_name
+        except Exception as e:
+            logger.warning(f"[Decision Sync] erro ao registrar último trade: {e}")
+
+
         self.lc1.log_sell(
             {
                 "mode": "MOCK",

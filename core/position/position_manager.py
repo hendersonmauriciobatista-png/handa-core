@@ -579,6 +579,61 @@ class PositionManager:
             f"last_symbol={metrics['last_traded_symbol']}"
         )   
 
+    def get_health_check(self) -> dict:
+        try:
+            metrics = self.get_performance_metrics()
+        except Exception as e:
+            return {
+                "status": "CRITICAL",
+                "message": f"Erro ao obter métricas: {e}",
+            }
+
+        total_trades = metrics.get("total_trades", 0)
+        open_positions = metrics.get("open_positions", 0)
+
+        history = list(self._history)
+
+        last_trade_at = None
+        seconds_since_last_trade = None
+
+        if history:
+            last_trade = history[-1]
+            if last_trade.closed_at:
+                last_trade_at = last_trade.closed_at.isoformat()
+                seconds_since_last_trade = int(
+                    (datetime.utcnow() - last_trade.closed_at).total_seconds()
+                )
+
+        # =========================
+        # CLASSIFICAÇÃO DE SAÚDE
+        # =========================
+        status = "HEALTHY"
+        message = "Sistema operando normalmente"
+
+        if metrics is None:
+            status = "CRITICAL"
+            message = "Métricas indisponíveis"
+
+        elif open_positions < 0:
+            status = "CRITICAL"
+            message = "Estado inválido de posições"
+
+        elif total_trades == 0:
+            status = "WARNING"
+            message = "Sistema sem trades registrados ainda"
+
+        elif seconds_since_last_trade is not None and seconds_since_last_trade > 1800:
+            status = "WARNING"
+            message = "Sem trades há muito tempo"
+
+        return {
+            "status": status,
+            "message": message,
+            "total_trades": total_trades,
+            "open_positions": open_positions,
+            "last_trade_at": last_trade_at,
+            "seconds_since_last_trade": seconds_since_last_trade,
+        }
 
     def get_penalty_map(self):
         return dict(self.penalty_map)

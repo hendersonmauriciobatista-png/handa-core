@@ -345,9 +345,9 @@ class MarketRankingEngine:
 
                     moderate_context = (
                         momentum in ("BULLISH", "NEUTRAL")
-                        and volume_ratio >= 1.00
-                        and 43 <= rsi <= 65
-                        and market_score_safe >= 0.45
+                        and volume_ratio >= 0.75
+                        and 43 <= rsi <= 67
+                        and market_score_safe >= 0.30
                     )
 
                     weak_but_operable_context = (

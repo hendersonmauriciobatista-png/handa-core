@@ -1120,7 +1120,29 @@ class SlotController:
 
             slot.pair = self._normalize_symbol(slot.pair)
 
-            
+            # ========================================================
+            # REVALIDAÇÃO FINAL ANTI-REENTRADA / ANTI-RACE CONDITION
+            # ========================================================
+            if self._is_pair_blocked(slot.pair):
+                print(
+                    f"[SLOT {slot.slot_id}] BUY CANCELADO NO GATE FINAL: "
+                    f"{slot.pair} bloqueado por cooldown"
+                )
+                self._block_rejected_symbol(slot.pair, cycles=1)
+                slot.pending_buy_signal = None
+                slot.reset()
+                return
+
+            if self._is_rejected_symbol_blocked(slot.pair):
+                print(
+                    f"[SLOT {slot.slot_id}] BUY CANCELADO NO GATE FINAL: "
+                    f"{slot.pair} bloqueado por rejection cooldown"
+                )
+                slot.pending_buy_signal = None
+                slot.reset()
+                return
+
+
             print(
                 f"[SLOT {slot.slot_id}] EXECUTING BUY {signal.pair} "
                 f"capital={signal.allocated_usdc:.4f} price={signal.entry_price:.8f}"

@@ -251,7 +251,7 @@ class DecisionEngine:
                         float(policy.expected_profit_pct) * 0.85, 0.0025
                     ),
                     atr=float(snapshot.atr),
-                    min_rr=max(float(policy.min_rr) * 0.90, 1.20),
+                    min_rr=max(float(policy.min_rr) * 0.90, 1.10),
                     stop_loss_pct=max(float(policy.stop_loss_pct), 0.0028),
                 )
 
@@ -311,7 +311,7 @@ class DecisionEngine:
                     capital_to_use=float(allocation.allocated_usdc),
                     expected_profit_pct=max(float(policy.expected_profit_pct), 0.003),
                     atr=float(snapshot.atr),
-                    min_rr=max(float(policy.min_rr), 1.30),
+                    min_rr=max(float(policy.min_rr), 1.15),
                     stop_loss_pct=float(policy.stop_loss_pct),
                 )
 

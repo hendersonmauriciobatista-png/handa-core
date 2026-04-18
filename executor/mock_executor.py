@@ -26,12 +26,18 @@ class MockExecutor:
         self.client = client
         self.position_manager = position_manager
         self.tracker = tracker
-        self.balance_usdc = float(initial_balance)
-
-        self.initial_balance = float(initial_balance)
         self.state_file = "storage/mock_state.json"
 
-        self._load_state()
+        # valor inicial provisório
+        self.balance_usdc = float(initial_balance)
+        self.initial_balance = float(initial_balance)
+
+        # tenta carregar estado salvo
+        loaded = self._load_state()
+
+        # se não carregou nada, mantém initial_balance
+        if not loaded:
+            print("[MOCK STATE] nenhum estado anterior encontrado, usando saldo inicial")
 
         # pair -> dados da posição
         self.positions = {}
@@ -212,11 +218,16 @@ class MockExecutor:
                 )
 
                 print(f"[MOCK STATE] carregado | balance={self.balance_usdc:.4f}")
+                return True
+
             else:
+                # cria estado inicial se não existir
                 self._save_state()
+                return False
 
         except Exception as e:
             print(f"[MOCK STATE ERROR - LOAD] {e}")
+            return False
 
     def _save_state(self):
         try:

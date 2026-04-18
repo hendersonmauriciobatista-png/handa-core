@@ -469,7 +469,7 @@ class PositionManager:
         )
         logger.info(self.get_performance_summary_text())
 
-
+        logger.info(self.get_snapshot_summary_text())
 
         duration_str = format_duration_short(pos.opened_at, pos.closed_at)
         sell_msg = format_sell_telegram(
@@ -634,6 +634,66 @@ class PositionManager:
             "last_trade_at": last_trade_at,
             "seconds_since_last_trade": seconds_since_last_trade,
         }
+
+    def get_snapshot_passive(self) -> dict:
+        metrics = self.get_performance_metrics()
+
+        health = None
+        if hasattr(self, "get_health_check"):
+            try:
+                health = self.get_health_check()
+            except Exception as e:
+                health = {
+                    "status": "CRITICAL",
+                    "message": f"Erro ao obter health check: {e}",
+                }
+        else:
+            health = {
+                "status": "UNAVAILABLE",
+                "message": "Health check ainda não implementado neste arquivo",
+            }
+
+        active_positions = self.get_active_positions()
+
+        active_symbols = [pos.symbol for pos in active_positions]
+        active_pairs = [pos.pair for pos in active_positions]
+
+        snapshot = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "performance": metrics,
+            "health": health,
+            "state": {
+                "open_positions": len(active_positions),
+                "active_symbols": active_symbols,
+                "active_pairs": active_pairs,
+                "last_traded_symbol": self.last_traded_symbol,
+                "penalty_map_size": len(self.penalty_map),
+            },
+        }
+
+        return snapshot
+
+    def get_snapshot_summary_text(self) -> str:
+        snapshot = self.get_snapshot_passive()
+
+        health = snapshot.get("health", {})
+        performance = snapshot.get("performance", {})
+        state = snapshot.get("state", {})
+
+        return (
+            "[SNAPSHOT] "
+            f"health={health.get('status')} | "
+            f"health_msg={health.get('message')} | "
+            f"trades={performance.get('total_trades')} | "
+            f"wins={performance.get('wins')} | "
+            f"losses={performance.get('losses')} | "
+            f"win_rate={performance.get('win_rate')}% | "
+            f"pnl_total={performance.get('pnl_total_usdc'):.4f} USDC | "
+            f"open_positions={state.get('open_positions')} | "
+            f"last_symbol={state.get('last_traded_symbol')} | "
+            f"active_symbols={state.get('active_symbols')}"
+        )
+
 
     def get_penalty_map(self):
         return dict(self.penalty_map)

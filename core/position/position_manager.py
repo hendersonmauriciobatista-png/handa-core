@@ -87,12 +87,11 @@ class PositionManager:
 
         print("[DEBUG] Entrou no PositionManager __init__")
 
-        
         self.notifier = TelegramNotifier(
             token="8696491310:AAFtyPpdmE7qJX2c61rPJeDI7gjAlnonazA",
             chat_id="7975792456",
         )
-    
+
         print("[DEBUG] Notifier criado")
 
         try:
@@ -186,7 +185,6 @@ class PositionManager:
         except Exception as e:
             logger.warning("[TELEGRAM] Falha ao enviar notificação BUY: %s", e)
 
-
         return pos
 
     # ========================================================
@@ -261,7 +259,7 @@ class PositionManager:
             still_negative = pnl_pct < 0
 
             if is_stagnant_range and never_reached_profit_arm and still_negative:
-               return CloseReason.DYNAMIC_STAGNATION
+                return CloseReason.DYNAMIC_STAGNATION
 
         return None
 
@@ -283,28 +281,41 @@ class PositionManager:
         pos = self._positions[symbol_name]
 
         # =========================
-        # 🔒 HARD STOP ABSOLUTO (NOVO)
-        # =========================
-        pnl_pct = (price - pos.entry_price) / pos.entry_price
-
-        if pnl_pct <= -0.005:  # -0.5% máximo absoluto
-            return CloseReason.STOP_LOSS
-
-        # =========================
         # TEMPO MÍNIMO DE SUSTENTAÇÃO
         # =========================
         hold_seconds = (datetime.utcnow() - pos.opened_at).total_seconds()
         min_dynamic_hold_seconds = 90
 
+        # =========================
+        # CÁLCULO DE PNL
+        # =========================
+        pnl_pct = (price - pos.entry_price) / pos.entry_price
+
+        # =========================
+        # HARD STOP DE EMERGÊNCIA
+        # Fica fora do hold para proteger capital em queda anormal
+        # =========================
+        if pnl_pct <= -0.02:  # -2.0% emergência absoluta
+            return CloseReason.STOP_LOSS
+
         if price > pos.peak_price:
             pos.peak_price = price
 
-        
         # =========================
         # STOP FIXO
+        # Respeita hold mínimo
         # =========================
-        if price <= pos.stop_loss:
-            return CloseReason.STOP_LOSS
+        if hold_seconds >= min_dynamic_hold_seconds:
+            if price <= pos.stop_loss:
+                return CloseReason.STOP_LOSS
+
+        # =========================
+        # HARD STOP ABSOLUTO
+        # Respeita hold mínimo
+        # =========================
+        if hold_seconds >= min_dynamic_hold_seconds:
+            if pnl_pct <= -0.005:  # -0.5% máximo absoluto
+                return CloseReason.STOP_LOSS
 
         # =========================
         # TAKE PROFIT → ATIVA TRAILING (NÃO SAI IMEDIATO)
@@ -336,9 +347,9 @@ class PositionManager:
         # DYNAMIC EXIT
         # =========================
         if DYNAMIC_EXIT_ENABLED and hold_seconds >= min_dynamic_hold_seconds:
-           dynamic_reason = self._evaluate_dynamic_exit(pos, price)
-           if dynamic_reason:
-               return dynamic_reason
+            dynamic_reason = self._evaluate_dynamic_exit(pos, price)
+            if dynamic_reason:
+                return dynamic_reason
 
         return None
 
@@ -404,7 +415,6 @@ class PositionManager:
         except Exception as e:
             logger.warning(f"[Decision Sync] erro ao registrar último trade: {e}")
 
-
         self.lc1.log_sell(
             {
                 "mode": "MOCK",
@@ -444,9 +454,6 @@ class PositionManager:
             logger.warning("[TELEGRAM] Falha ao enviar notificação: %s", e)
 
         return pos
-
-
-        
 
     # ========================================================
     # GETTERS

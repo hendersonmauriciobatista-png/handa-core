@@ -481,7 +481,7 @@ class MarketRankingEngine:
 
                 # Caminho B — neutro com confirmação técnica
                 elif momentum == "NEUTRAL":
-                    if volume_ratio >= 1.2 and 45 <= rsi <= 65:
+                    if volume_ratio >= 0.95 and 43 <= rsi <= 67:
                         quality_ok = True
 
                 # Caminho C — score técnico forte mesmo sem momentum ideal

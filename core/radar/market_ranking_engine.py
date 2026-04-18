@@ -8,6 +8,7 @@ from core.alo_profile import AloProfileUpdater
 from core.alo.dynamic_core_adapter import AloDynamicCoreAdapter
 from core.alo.dynamic_core_engine import AloDynamicCoreEngine
 
+
 class MarketRankingEngine:
     """
     Refina e ordena as oportunidades detectadas pelo scanner.
@@ -22,7 +23,6 @@ class MarketRankingEngine:
         self.alo_profile_updater = AloProfileUpdater()
         self.dynamic_core_adapter = AloDynamicCoreAdapter()
         self.dynamic_core_engine = AloDynamicCoreEngine()
-
 
         self._radar_summary_local = {
             "STRUCTURAL_BLOCK": 0,
@@ -90,10 +90,7 @@ class MarketRankingEngine:
             }
 
             if str(reason).strip().upper() in ignored_for_alo_learning:
-                print(
-                    f"[ALO LEARNING IGNORE] symbol={token.get('symbol')} "
-                    f"reason={reason}"
-                )
+                # log removido (ALO LEARNING IGNORE)
                 return
 
             snapshot = token.get("snapshot")
@@ -271,15 +268,7 @@ class MarketRankingEngine:
                 rsi = self._safe_float(analysis.get("rsi", 50), 50.0)
                 volume_ratio = self._safe_float(analysis.get("volume_ratio", 0), 0.0)
 
-                print(
-                    "DEBUG RANKING:",
-                    symbol,
-                    trend,
-                    momentum,
-                    market_state,
-                    rsi,
-                    volume_ratio,
-                )
+                # log removido (debug ranking)
 
                 score = 0.0
 
@@ -297,9 +286,7 @@ class MarketRankingEngine:
                     )
 
                     if not rsi_extreme_but_valid:
-                        print(
-                            f"[RADAR FILTER] {symbol} REJEITADO | motivo=RSI_EXTREMO | rsi={rsi:.2f}"
-                        )
+                        # log removido (radar filter - rsi extremo)
 
                         self._radar_summary_local["RSI_EXTREMO"] += 1
 
@@ -311,11 +298,8 @@ class MarketRankingEngine:
 
                         continue
                     else:
-                        print(
-                            f"[RADAR FILTER] {symbol} LIBERAÇÃO CONTROLADA EM RSI EXTREMO | "
-                            f"rsi={rsi:.2f} | trend={trend} | momentum={momentum} | "
-                            f"volume_ratio={volume_ratio:.2f}"
-                        )
+                        # log removido (radar filter - liberação controlada rsi extremo)
+                        pass
 
                 # Pump / volume anormal excessivo
                 if volume_ratio >= 4.0:
@@ -326,10 +310,7 @@ class MarketRankingEngine:
                     )
 
                     if not volume_extreme_but_valid:
-                        print(
-                            f"[RADAR FILTER] {symbol} REJEITADO | motivo=VOLUME_EXTREMO | "
-                            f"volume_ratio={volume_ratio:.2f}"
-                        )
+                        # log removido (radar filter - volume extremo)
 
                         self._radar_summary_local["VOLUME_EXTREMO"] += 1
 
@@ -339,13 +320,10 @@ class MarketRankingEngine:
                             "ABNORMAL_VOLUME",
                         )
 
-                        continue 
+                        continue
                     else:
-                        print(
-                            f"[RADAR FILTER] {symbol} LIBERAÇÃO CONTROLADA EM VOLUME EXTREMO | "
-                            f"volume_ratio={volume_ratio:.2f} | trend={trend} | "
-                            f"momentum={momentum} | rsi={rsi:.2f}"
-                        )
+                        # log removido (radar filter - liberação controlada volume extremo)
+                        pass
 
                 # ------------------------------------------------
                 # TREND PREFERENCIAL / LIBERAÇÃO CONTROLADA
@@ -361,10 +339,7 @@ class MarketRankingEngine:
 
                     if neutral_trend_ok:
                         score += 0.20
-                        print(
-                            f"[RADAR FILTER] {symbol} LIBERAÇÃO CONTROLADA FORA DO UPTREND | "
-                            f"momentum={momentum} | volume_ratio={volume_ratio:.2f} | rsi={rsi:.2f}"
-                        )
+                        # log removido (radar filter - liberação controlada fora do uptrend)
                     else:
                         # ======================================================
                         # 🔥 DYNAMIC CORE CHECK (ANTES DE REJEITAR)
@@ -452,10 +427,7 @@ class MarketRankingEngine:
                 score = max(min(score, 1.0), 0.0)
 
                 if score < 0.30:
-                    print(
-                        f"[RADAR FILTER] {symbol} REJEITADO | motivo=SCORE_BAIXO | "
-                        f"score={score:.4f}"
-                    )
+                    # log removido (radar filter - score baixo)
 
                     self._radar_summary_local["SCORE_BAIXO"] += 1
 
@@ -485,19 +457,10 @@ class MarketRankingEngine:
                 # Caminho C — score técnico forte mesmo sem momentum ideal
                 if not quality_ok and score >= 0.55 and volume_ratio >= 1.0 and 45 <= rsi <= 68:
                     quality_ok = True
-                    print(
-                        f"[RADAR FILTER] {symbol} LIBERAÇÃO CONTROLADA POR SCORE FORTE | "
-                        f"score={score:.4f} | momentum={momentum} | "
-                        f"volume_ratio={volume_ratio:.2f} | rsi={rsi:.2f}"
-                    )
+                    # log removido (radar filter - liberação controlada por score forte)
 
                 if not quality_ok:
-                    print(
-                        f"[RADAR FILTER] {symbol} REJEITADO no filtro de qualidade | "
-                        f"momentum={momentum} | volume={volume_state} | "
-                        f"volume_ratio={volume_ratio:.2f} | rsi={rsi:.2f} | "
-                        f"market_score={market_score:.2f}"
-                    )
+                    # log removido (radar filter - quality filter)
 
                     self._radar_summary_local["QUALITY_FILTER"] += 1
 

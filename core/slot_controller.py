@@ -788,7 +788,7 @@ class SlotController:
                                     f"motivo=BAIXA_CONFIANCA | conf={confidence}"
                                 )
 
-                                self._block_rejected_symbol(symbol, cycles=3)
+                                self._block_rejected_symbol(symbol, cycles=1)
                                 signal = None
                             else:
                                 print(

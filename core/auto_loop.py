@@ -75,6 +75,16 @@ class AutoLoop:
                 print(f"Latência mercado: {self.market_latency} ms")
                 print(f"Latência execução: {self.execution_latency} ms")
 
+                # =========================
+                # HEALTH + SNAPSHOT PASSIVO
+                # =========================
+                try:
+                    if hasattr(self.slot_controller, "position_manager") and self.slot_controller.position_manager:
+                        print(f"[HEALTH LOOP] {self.slot_controller.position_manager.get_health_check()}")
+                        print(self.slot_controller.position_manager.get_snapshot_summary_text())
+                except Exception as health_error:
+                    print(f"[AUTOLOOP HEALTH ERROR] {health_error}")
+
             except Exception as e:
 
                 print("[AutoLoop] erro no ciclo:", e)

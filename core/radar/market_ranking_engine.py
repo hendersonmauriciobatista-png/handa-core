@@ -242,7 +242,7 @@ class MarketRankingEngine:
                 # BLOQUEIO ESTRUTURAL DE ATIVOS FRACOS / MEMECOINS
                 # ------------------------------------------------
                 if self._is_symbol_blocked(symbol):
-                    print(f"[RADAR FILTER] {symbol} BLOQUEADO por qualidade estrutural")
+                    # log removido (structural block)
 
                     self._radar_summary_local["STRUCTURAL_BLOCK"] += 1
 

@@ -467,7 +467,10 @@ class PositionManager:
         logger.info(
             "[CLOSE] %s | pnl=%.4f USDC | reason=%s", symbol_name, net_usdc, reason
         )
-  
+        logger.info(self.get_performance_summary_text())
+
+
+
         duration_str = format_duration_short(pos.opened_at, pos.closed_at)
         sell_msg = format_sell_telegram(
             pair=symbol_name,
@@ -508,6 +511,74 @@ class PositionManager:
 
     def get_history(self):
         return list(self._history)
+
+    
+    def get_performance_metrics(self):
+        history = list(self._history)
+
+        total_trades = len(history)
+        wins = sum(1 for pos in history if float(pos.net_pnl_usdc) > 0)
+        losses = sum(1 for pos in history if float(pos.net_pnl_usdc) < 0)
+        breakeven = total_trades - wins - losses
+
+        pnl_total = sum(float(pos.net_pnl_usdc) for pos in history)
+
+        pnl_avg = (
+            pnl_total / total_trades
+            if total_trades > 0
+            else 0.0
+        )
+
+        win_rate = (
+            (wins / total_trades) * 100
+            if total_trades > 0
+            else 0.0
+        )
+
+        best_trade = max(
+            (float(pos.net_pnl_usdc) for pos in history),
+            default=0.0,
+        )
+
+        worst_trade = min(
+            (float(pos.net_pnl_usdc) for pos in history),
+            default=0.0,
+        )
+
+        return {
+            "total_trades": total_trades,
+            "wins": wins,
+            "losses": losses,
+            "breakeven": breakeven,
+            "win_rate": round(win_rate, 2),
+            "pnl_total_usdc": round(pnl_total, 4),
+            "pnl_avg_usdc": round(pnl_avg, 4),
+            "best_trade_usdc": round(best_trade, 4),
+            "worst_trade_usdc": round(worst_trade, 4),
+            "open_positions": len(self._positions),
+            "penalized_symbols": len([v for v in self.penalty_map.values() if v > 0]),
+            "last_traded_symbol": self.last_traded_symbol,
+        }
+        
+    def get_performance_summary_text(self):
+        metrics = self.get_performance_metrics()
+
+        return (
+            "[PERFORMANCE] "
+            f"trades={metrics['total_trades']} | "
+            f"wins={metrics['wins']} | "
+            f"losses={metrics['losses']} | "
+            f"breakeven={metrics['breakeven']} | "
+            f"win_rate={metrics['win_rate']:.2f}% | "
+            f"pnl_total={metrics['pnl_total_usdc']:.4f} USDC | "
+            f"pnl_avg={metrics['pnl_avg_usdc']:.4f} USDC | "
+            f"best={metrics['best_trade_usdc']:.4f} | "
+            f"worst={metrics['worst_trade_usdc']:.4f} | "
+            f"open_positions={metrics['open_positions']} | "
+            f"penalized_symbols={metrics['penalized_symbols']} | "
+            f"last_symbol={metrics['last_traded_symbol']}"
+        )   
+
 
     def get_penalty_map(self):
         return dict(self.penalty_map)

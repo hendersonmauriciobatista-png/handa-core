@@ -282,6 +282,15 @@ class PositionManager:
         price = float(price)
         pos = self._positions[symbol_name]
 
+        # =========================
+        # 🔒 HARD STOP ABSOLUTO (NOVO)
+        # =========================
+        pnl_pct = (price - pos.entry_price) / pos.entry_price
+
+        if pnl_pct <= -0.005:  # -0.5% máximo absoluto
+            return CloseReason.STOP_LOSS
+
+
         if price > pos.peak_price:
             pos.peak_price = price
 

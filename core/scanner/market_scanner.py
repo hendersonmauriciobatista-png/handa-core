@@ -68,7 +68,7 @@ class MarketScanner:
             symbol = str(t.get("symbol", "") or "").strip().upper()
 
             if not self._is_valid_usdc_symbol(symbol):
-                print(f"[STRUCTURAL BLOCK] símbolo inválido descartado: {repr(symbol)}")
+                # log removido (structural block scanner)
                 continue
 
             if self._is_stable_pair(symbol):
@@ -87,8 +87,9 @@ class MarketScanner:
 
             candidates.append((symbol, volume, volatility, ranking_score))
 
-            candidates.sort(key=lambda x: x[3], reverse=True)
-        
+
+        # 👇 FORA do for (mesma indentação do "for")
+        candidates.sort(key=lambda x: x[3], reverse=True)
 
         top_pairs = [c[0] for c in candidates[:limit]]
 

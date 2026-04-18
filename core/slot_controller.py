@@ -722,6 +722,11 @@ class SlotController:
 
                 symbol = self._normalize_symbol(symbol)
 
+                # 🚨 BLOQUEIO FORTE IMEDIATO (ANTES DE QUALQUER COISA)
+                if self._is_pair_blocked(symbol):
+                    print(f"[GLOBAL BLOCK] {symbol} bloqueado por cooldown (LOSS)")
+                    continue
+
                 if symbol in pairs_in_use:
                     continue
 

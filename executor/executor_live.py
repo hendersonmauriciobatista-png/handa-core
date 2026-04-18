@@ -10,14 +10,20 @@ from math import floor
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 
+def format_buy_telegram(pair: str, entry: float, capital: float) -> str:
+    return (
+        f"BUY | {pair}\n"
+        f"{entry:.8f} | {capital:.2f} USDC"
+    )
 
 class ExecutorLive:
 
-    def __init__(self, client: Client):
+    def __init__(self, client: Client, notifier=None):
         if client is None:
             raise ValueError("Client Binance não pode ser None.")
         self._client = client
         self.exchange = "BINANCE_SPOT"
+        self.notifier = notifier
 
     # --------------------------------------------------------
     # MARKET BUY POR VALOR (USDC)
@@ -44,6 +50,14 @@ class ExecutorLive:
                 total_qty = sum(float(f["qty"]) for f in fills)
                 if total_qty > 0:
                     avg_price = total_cost / total_qty
+
+            if self.notifier and order.get("status") == "FILLED":
+                msg = format_buy_telegram(
+                    pair=symbol,
+                    entry=avg_price,
+                    capital=quote_amount,
+                )
+                self.notifier.send(msg)
 
             return {
                 "exchange": self.exchange,

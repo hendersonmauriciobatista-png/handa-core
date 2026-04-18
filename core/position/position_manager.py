@@ -18,6 +18,41 @@ from core.lc1.lc1_logger import LC1Logger
 
 logger = logging.getLogger(__name__)
 
+def get_pnl_emoji(pnl: float) -> str:
+    if pnl > 0:
+        return "🟢"
+    if pnl < 0:
+        return "🔴"
+    return "⚪"
+
+
+def format_duration_short(opened_at: datetime, closed_at: datetime) -> str:
+    total_seconds = int((closed_at - opened_at).total_seconds())
+
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+
+    if hours > 0:
+        return f"{hours}h{minutes:02d}m{seconds:02d}s"
+    if minutes > 0:
+        return f"{minutes}m{seconds:02d}s"
+    return f"{seconds}s"
+
+
+def format_sell_telegram(
+    pair: str,
+    pnl: float,
+    pct: float,
+    reason: str,
+    duration: str,
+) -> str:
+    emoji = get_pnl_emoji(pnl)
+    return (
+        f"SELL | {pair}\n"
+        f"{emoji} {pnl:+.2f} USDC ({pct:+.2f}%)\n"
+        f"{reason} | {duration}"
+    )
 
 class PositionStatus(Enum):
     OPEN = "OPEN"
@@ -175,16 +210,7 @@ class PositionManager:
             }
         )
 
-        # =========================
-        # TELEGRAM BUY
-        # =========================
-        try:
-            self.notifier.send(
-                f"BUY {symbol_name} | entrada={pos.entry_price:.8f} | capital={capital_invested:.4f} USDC"
-            )
-        except Exception as e:
-            logger.warning("[TELEGRAM] Falha ao enviar notificação BUY: %s", e)
-
+       
         return pos
 
     # ========================================================
@@ -441,11 +467,20 @@ class PositionManager:
         logger.info(
             "[CLOSE] %s | pnl=%.4f USDC | reason=%s", symbol_name, net_usdc, reason
         )
+  
+        duration_str = format_duration_short(pos.opened_at, pos.closed_at)
+        sell_msg = format_sell_telegram(
+            pair=symbol_name,
+            pnl=net_usdc,
+            pct=net_pct * 100,
+            reason=reason_value,
+            duration=duration_str,
+        )
+
 
         try:
-            self.notifier.send(
-                f"SELL {symbol_name} | pnl={net_usdc:.4f} USDC | motivo={reason_value}"
-            )
+                    
+            self.notifier.send(sell_msg)
         except Exception as e:
             logger.warning("[TELEGRAM] Falha ao enviar notificação: %s", e)
 

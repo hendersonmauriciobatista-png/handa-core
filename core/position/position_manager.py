@@ -194,7 +194,7 @@ class PositionManager:
     def _evaluate_dynamic_exit(self, pos: Position, price: float):
 
         pnl_pct = (price - pos.entry_price) / pos.entry_price
-        pos.cycles_in_trade += 1
+        
 
         if pnl_pct > pos.peak_pnl_pct:
             pos.peak_pnl_pct = pnl_pct
@@ -280,6 +280,8 @@ class PositionManager:
         price = float(price)
         pos = self._positions[symbol_name]
 
+        pos.cycles_in_trade += 1
+
         # =========================
         # TEMPO MÍNIMO DE SUSTENTAÇÃO
         # =========================
@@ -291,11 +293,14 @@ class PositionManager:
         # =========================
         pnl_pct = (price - pos.entry_price) / pos.entry_price
 
+        
+
         # =========================
-        # HARD STOP DE EMERGÊNCIA
-        # Fica fora do hold para proteger capital em queda anormal
+        # HARD STOP ABSOLUTO
+        # NÃO respeita hold mínimo
+        # Proteção máxima de capital
         # =========================
-        if pnl_pct <= -0.02:  # -2.0% emergência absoluta
+        if pnl_pct <= -0.005:  # -0.5% máximo absoluto
             return CloseReason.STOP_LOSS
 
         if price > pos.peak_price:
@@ -310,22 +315,13 @@ class PositionManager:
                 return CloseReason.STOP_LOSS
 
         # =========================
-        # HARD STOP ABSOLUTO
-        # Respeita hold mínimo
-        # =========================
-        if hold_seconds >= min_dynamic_hold_seconds:
-            if pnl_pct <= -0.005:  # -0.5% máximo absoluto
-                return CloseReason.STOP_LOSS
-
-        # =========================
         # TAKE PROFIT → ATIVA TRAILING (NÃO SAI IMEDIATO)
         # =========================
         if price >= pos.take_profit:
             pos.trailing_active = True
 
-        # só ativa se ainda não estava ativo
-        if pos.trailing_stop_price == 0:
-            pos.trailing_stop_price = price * (1 - TRAILING_STOP_PCT)
+            if pos.trailing_stop_price == 0:
+                pos.trailing_stop_price = price * (1 - TRAILING_STOP_PCT)
 
         # NÃO fecha posição aqui
         # deixa o trailing decidir saída

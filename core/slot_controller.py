@@ -1279,6 +1279,21 @@ class SlotController:
 
             if result.net_pnl_usdc < 0:
                 self._register_loss_cooldown(result.pair)
+
+                # =====================================================
+                # QUARENTENA EXTRA PÓS-STAGNATION
+                # Evita reciclagem precoce do mesmo par em mercado morno
+                # =====================================================
+                try:
+                    if reason == CloseReason.DYNAMIC_STAGNATION:
+                        self._block_rejected_symbol(result.pair, cycles=15)
+                        print(
+                            f"[STAGNATION QUARANTINE] {result.pair} bloqueado por "
+                            f"{self.rejected_symbols_cooldown.get(self._normalize_symbol(result.pair), 0)} ciclo(s)"
+                        )
+                except Exception as e:
+                    print(f"[STAGNATION QUARANTINE ERROR] {result.pair} | erro={e}")
+
             else:
                 self._register_win_recovery(result.pair)
             print(

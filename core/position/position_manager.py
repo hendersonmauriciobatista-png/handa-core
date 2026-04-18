@@ -471,6 +471,8 @@ class PositionManager:
 
         logger.info(self.get_snapshot_summary_text())
 
+        logger.info(self.get_daily_summary_text())
+
         duration_str = format_duration_short(pos.opened_at, pos.closed_at)
         sell_msg = format_sell_telegram(
             pair=symbol_name,
@@ -694,6 +696,43 @@ class PositionManager:
             f"active_symbols={state.get('active_symbols')}"
         )
 
+    def get_daily_summary_text(self) -> str:
+        metrics = self.get_performance_metrics()
+
+        health = None
+        if hasattr(self, "get_health_check"):
+            try:
+                health = self.get_health_check()
+            except Exception as e:
+                health = {
+                    "status": "CRITICAL",
+                    "message": f"Erro ao obter health check: {e}",
+                }
+        else:
+            health = {
+                "status": "UNAVAILABLE",
+                "message": "Health check ainda não implementado",
+            }
+
+        snapshot = self.get_snapshot_passive()
+
+        return (
+            "[DAILY SUMMARY] "
+            f"health={health.get('status')} | "
+            f"health_msg={health.get('message')} | "
+            f"trades={metrics['total_trades']} | "
+            f"wins={metrics['wins']} | "
+            f"losses={metrics['losses']} | "
+            f"breakeven={metrics['breakeven']} | "
+            f"win_rate={metrics['win_rate']:.2f}% | "
+            f"pnl_total={metrics['pnl_total_usdc']:.4f} USDC | "
+            f"pnl_avg={metrics['pnl_avg_usdc']:.4f} USDC | "
+            f"best={metrics['best_trade_usdc']:.4f} | "
+            f"worst={metrics['worst_trade_usdc']:.4f} | "
+            f"open_positions={snapshot['state']['open_positions']} | "
+            f"last_symbol={snapshot['state']['last_traded_symbol']} | "
+            f"penalized_symbols={metrics['penalized_symbols']}"
+        )
 
     def get_penalty_map(self):
         return dict(self.penalty_map)

@@ -331,15 +331,45 @@ class MarketRankingEngine:
                 if trend == "UPTREND":
                     score += 0.35
                 else:
-                    neutral_trend_ok = (
+                    # ======================================================
+                    # LEI DO DINAMISMO — NO_UPTREND CONTROLADO
+                    # ======================================================
+                    market_score_safe = self._safe_float(market_score, 0.0)
+
+                    strong_context = (
                         momentum == "BULLISH"
-                        and volume_ratio >= 1.2
+                        and volume_ratio >= 1.15
+                        and 44 <= rsi <= 66
+                        and market_score_safe >= 0.55
+                    )
+
+                    moderate_context = (
+                        momentum in ("BULLISH", "NEUTRAL")
+                        and volume_ratio >= 1.00
+                        and 43 <= rsi <= 65
+                        and market_score_safe >= 0.45
+                    )
+
+                    weak_but_operable_context = (
+                        momentum == "BULLISH"
+                        and volume_ratio >= 0.90
                         and 45 <= rsi <= 62
+                        and market_score_safe >= 0.40
+                    )
+
+                    neutral_trend_ok = (
+                        strong_context
+                        or moderate_context
+                        or weak_but_operable_context
                     )
 
                     if neutral_trend_ok:
-                        score += 0.20
-                        # log removido (radar filter - liberação controlada fora do uptrend)
+                        if strong_context:
+                            score += 0.22
+                        elif moderate_context:
+                            score += 0.18
+                        else:
+                            score += 0.12
                     else:
                         # ======================================================
                         # 🔥 DYNAMIC CORE CHECK (ANTES DE REJEITAR)

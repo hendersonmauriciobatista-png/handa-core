@@ -115,6 +115,9 @@ class PositionManager:
     def __init__(self):
         self._positions: Dict[str, Position] = {}
         self._history: List[Position] = []
+        self._snapshot_buffer: List[dict] = []
+        self._snapshot_buffer_size = 50
+
 
         self.penalty_map: Dict[str, int] = {}
         self.last_traded_symbol: Optional[str] = None
@@ -734,6 +737,20 @@ class PositionManager:
             f"penalized_symbols={metrics['penalized_symbols']}"
         )
 
+    def register_snapshot(self):
+        try:
+            snapshot = self.get_snapshot_passive()
+            self._snapshot_buffer.append(snapshot)
+
+            if len(self._snapshot_buffer) > self._snapshot_buffer_size:
+                self._snapshot_buffer.pop(0)
+        except Exception as e:
+            logger.warning(f"[SNAPSHOT BUFFER ERROR] {e}")
+
+    def get_snapshot_buffer(self):
+        return list(self._snapshot_buffer)
+
+
     def get_penalty_map(self):
         return dict(self.penalty_map)
 
@@ -743,6 +760,7 @@ class PositionManager:
     def reset(self):
         self._positions.clear()
         self._history.clear()
+        self._snapshot_buffer.clear()
         self.penalty_map.clear()
         self.last_traded_symbol = None
         logger.info("[PositionManager] Reset completo.")

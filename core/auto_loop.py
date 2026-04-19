@@ -86,7 +86,8 @@ class AutoLoop:
                     if hasattr(self.slot_controller, "position_manager") and self.slot_controller.position_manager:
                         print(f"[HEALTH LOOP] {self.slot_controller.position_manager.get_health_check()}")
                         print(self.slot_controller.position_manager.get_snapshot_summary_text())
-                     
+                        self.slot_controller.position_manager.register_snapshot()
+
                         health = self.slot_controller.position_manager.get_health_check()
 
                         if health.get("status") == "CRITICAL":

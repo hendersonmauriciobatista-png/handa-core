@@ -9,6 +9,13 @@ import os
 from datetime import datetime
 
 
+def format_buy_telegram(pair: str, entry: float, capital: float) -> str:
+    return (
+        f"BUY | {pair}\n"
+        f"{entry:.8f} | {capital:.2f} USDC"
+    )
+
+
 class MockExecutor:
     """
     Executor MOCK compatível com múltiplos slots.
@@ -22,11 +29,13 @@ class MockExecutor:
         position_manager=None,
         tracker=None,
         initial_balance: float = 1000.0,
+        notifier=None,
     ):
         self.client = client
         self.position_manager = position_manager
         self.tracker = tracker
         self.state_file = "storage/mock_state.json"
+        self.notifier = notifier
 
         # valor inicial provisório
         self.balance_usdc = float(initial_balance)
@@ -137,6 +146,14 @@ class MockExecutor:
                 )
             except Exception:
                 pass
+
+        if self.notifier:
+            msg = format_buy_telegram(
+                pair=pair,
+                entry=entry_price,
+                capital=allocated_usdc,
+            )
+            self.notifier.send(msg)
 
         return SimpleNamespace(
             pair=pair,

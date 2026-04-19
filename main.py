@@ -129,12 +129,15 @@ def build_executor(
     client: Client,
     position_manager: PositionManager,
     tracker: PositionTracker,
+    notifier=None,
 ):
+
     if current_mode == ExecutionMode.LIVE:
         executor = BinanceExecutor(
             client=client,
             position_manager=position_manager,
             tracker=tracker,
+            notifier=notifier,
         )
         print("[BOOT] BinanceExecutor iniciado (LIVE)")
         return executor
@@ -144,6 +147,7 @@ def build_executor(
         position_manager=position_manager,
         tracker=tracker,
         initial_balance=1000.0,
+        notifier=notifier,
     )
     print("[BOOT] MockExecutor iniciado (assinatura completa)")
     return executor
@@ -171,6 +175,11 @@ def main():
     # --------------------------------------------------------
     client = build_client(current_mode)
 
+    telegram_notifier = TelegramNotifier(
+        token="8696491310:AAFtyPpdmE7qJX2c61rPJeDI7gjAlnonazA",
+        chat_id="7975792456",
+    )
+
     # --------------------------------------------------------
     # POSITION CORE
     # --------------------------------------------------------
@@ -188,6 +197,7 @@ def main():
         client=client,
         position_manager=position_manager,
         tracker=tracker,
+        notifier=telegram_notifier,
     )
 
     # --------------------------------------------------------
@@ -289,10 +299,7 @@ def main():
     print("AutoLoop pronto (aguardando START da UI)")
     print("===================================\n")
 
-    telegram_notifier = TelegramNotifier(
-        token="8696491310:AAFtyPpdmE7qJX2c61rPJeDI7gjAlnonazA",
-        chat_id="7975792456",
-    )
+    
         
     ha_controller = HAController(
         auto_loop=auto_loop,

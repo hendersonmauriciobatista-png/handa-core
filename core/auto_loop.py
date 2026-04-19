@@ -22,6 +22,10 @@ class AutoLoop:
         self.cycle_latency = 0
         self.market_latency = 0
         self.execution_latency = 0
+        self.last_health_alert_at = 0
+        self.health_alert_cooldown = 300
+
+
         # -----------------------------------------------------
         # Inicializa UI conectada ao SlotController
         # -----------------------------------------------------
@@ -82,6 +86,15 @@ class AutoLoop:
                     if hasattr(self.slot_controller, "position_manager") and self.slot_controller.position_manager:
                         print(f"[HEALTH LOOP] {self.slot_controller.position_manager.get_health_check()}")
                         print(self.slot_controller.position_manager.get_snapshot_summary_text())
+                     
+                        health = self.slot_controller.position_manager.get_health_check()
+
+                        if health.get("status") == "CRITICAL":
+                            now_ts = time.time()
+                            if now_ts - self.last_health_alert_at >= self.health_alert_cooldown:
+                                print(f"[HEALTH ALERT] {health}")
+                                self.last_health_alert_at = now_ts
+
                 except Exception as health_error:
                     print(f"[AUTOLOOP HEALTH ERROR] {health_error}")
 

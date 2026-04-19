@@ -256,30 +256,7 @@ class AloVisionEngine:
             "ALTA",
         )
 
-        # ------------------------------------------------
-        # DINAMISMO CONTROLADO — LIBERAÇÃO CONTEXTUAL (REVISADO)
-        # ------------------------------------------------
-        dynamic_bonus = 0.0
-
-        is_quality_strong = (
-            setup_context.quality_label in ("BOA", "FORTE")
-            or setup_context.quality_score >= 7.5
-        )
-
-        market_not_bad = market_context.market_state not in (
-            "LATERAL_FRACO",
-            "UNKNOWN",
-        )
-
-        trend_supportive = market_context.trend_strength in (
-            "MODERADA",
-            "FORTE",
-        )
-
-        opportunity_not_dead = market_context.opportunity_density in (
-            "MODERADA",
-            "ALTA",
-        )
+        
 
         if is_quality_strong:
             if market_not_bad:

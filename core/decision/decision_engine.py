@@ -346,6 +346,29 @@ class DecisionEngine:
                 f"[Engine] BUY negado {pair} | "
                 f"regime={debug_info.regime} | motivos={reasons}"
             )
+
+            if self.alo is not None:
+                try:
+                    self.alo.ingest_event({
+                       "symbol": pair,
+                       "event_type": "NON_EXECUTION",
+                       "reason": "BUY_REJECTED",
+                       "analysis": {
+                           "selection_score": float(confidence)
+                       },
+                       "market_context": {
+                           "stage": "DECISION_ENGINE",
+                           "mqii_state": getattr(self, "mqii_quality", {}).get("state", "") if isinstance(getattr(self, "mqii_quality", None), dict) else "",
+                           "liquidity_score": getattr(self, "mqii_quality", {}).get("liquidity_score", 0.0) if isinstance(getattr(self, "mqii_quality", None), dict) else 0.0,
+                        },
+                        "snapshot": {
+                            "volume_ratio": float(snapshot.volume_ratio or 0.0),
+                            "rsi_14": float(snapshot.rsi or 0.0),
+                        }
+                    })
+                except Exception as e:
+                    logger.warning(f"[ALO INGEST ERROR - NON_EXECUTION] {e}")
+
             return None
 
         allocation = self.allocator.request_allocation(pair)

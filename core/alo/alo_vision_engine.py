@@ -231,6 +231,79 @@ class AloVisionEngine:
         ) and setup_context.quality_label in ("BOA", "FORTE"):
             score += 2.5
 
+        # ------------------------------------------------
+        # DINAMISMO CONTROLADO — LIBERAÇÃO CONTEXTUAL
+        # ------------------------------------------------
+        dynamic_bonus = 0.0
+
+        is_quality_strong = (
+            setup_context.quality_label in ("BOA", "FORTE")
+            or setup_context.quality_score >= 7.5
+        )
+
+        market_not_bad = market_context.market_state not in (
+            "LATERAL_FRACO",
+            "UNKNOWN",
+        )
+
+        trend_supportive = market_context.trend_strength in (
+            "MODERADA",
+            "FORTE",
+        )
+
+        opportunity_not_dead = market_context.opportunity_density in (
+            "MODERADA",
+            "ALTA",
+        )
+
+        # ------------------------------------------------
+        # DINAMISMO CONTROLADO — LIBERAÇÃO CONTEXTUAL (REVISADO)
+        # ------------------------------------------------
+        dynamic_bonus = 0.0
+
+        is_quality_strong = (
+            setup_context.quality_label in ("BOA", "FORTE")
+            or setup_context.quality_score >= 7.5
+        )
+
+        market_not_bad = market_context.market_state not in (
+            "LATERAL_FRACO",
+            "UNKNOWN",
+        )
+
+        trend_supportive = market_context.trend_strength in (
+            "MODERADA",
+            "FORTE",
+        )
+
+        opportunity_not_dead = market_context.opportunity_density in (
+            "MODERADA",
+            "ALTA",
+        )
+
+        if is_quality_strong:
+            if market_not_bad:
+                dynamic_bonus += 0.75
+            if trend_supportive:
+                dynamic_bonus += 0.5
+            if opportunity_not_dead:
+                dynamic_bonus += 0.25
+  
+        if (
+           setup_context.quality_label == "FORTE"
+           and market_context.market_state in (
+               "NEUTRO_OPERAVEL",
+               "BULLISH_MODERADO",
+               "BULLISH_FORTE",
+            )
+        ):
+            dynamic_bonus += 1.0
+
+        # trava de segurança
+        dynamic_bonus = min(dynamic_bonus, 1.5)
+        score += dynamic_bonus
+        
+
         if score < 0.0:
             return 0.0
 

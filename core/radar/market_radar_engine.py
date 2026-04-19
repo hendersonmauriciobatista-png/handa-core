@@ -813,6 +813,17 @@ class MarketRadarEngine:
                     )
 
                 self.market_liquidity = liquidity_data
+
+                # ============================================
+                # SINCRONIZA LIQUIDEZ COM SNAPSHOT GLOBAL
+                # ============================================
+                if isinstance(ranking_market_snapshot, dict):
+                    ranking_market_snapshot.update({
+                        "liquidity_score": liquidity_data.get("liquidity_score", 0.0),
+                        "liquidity_label": liquidity_data.get("liquidity_label", ""),
+                        "liquidity_message": liquidity_data.get("liquidity_message", ""),
+                    })
+
                 self.market_quality = mqii_snapshot
 
                 self.market_liquidity_history.append(liquidity_data.copy())

@@ -92,7 +92,6 @@ class DecisionEngine:
         )
         self.system_context_provider = system_context_provider
         self.position_manager = None
-        self.position_manager = None
         self.alo = None
         self.alo_decision = AloDecisionLayer(mode=AloDecisionMode.OBSERVER)
 

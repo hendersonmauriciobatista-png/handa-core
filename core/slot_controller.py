@@ -73,6 +73,17 @@ class SlotController:
 
         self.loss_streak_reset_window = 12 * 60 * 60
 
+        # DRC — Dynamic Reentry Control
+        self.drc_fast_stop_seconds = 15
+        self.drc_quick_stop_seconds = 30
+        self.drc_exhaustion_profit_pct = 0.03
+        self.drc_good_profit_pct = 0.007
+        self.drc_fast_stop_cooldown = 45 * 60
+        self.drc_quick_stop_cooldown = 20 * 60
+        self.drc_exhaustion_cooldown = 20 * 60
+        self.drc_good_profit_cooldown = 12 * 60
+
+
         # BLOQUEIO CURTO ENTRE CICLOS (NEGATIVA / FALHA DE BUY)
         self.rejected_symbols_cooldown = {}
 
@@ -397,6 +408,79 @@ class SlotController:
             print(
                 f"[LEARNING] {symbol} ajustado após WIN | factor={state['factor']:.2f}"
             )
+
+    def _register_dynamic_reentry_control(
+        self,
+        symbol: str,
+        pnl_usdc: float,
+        entry_price: float,
+        exit_price: float,
+        duration_seconds: float,
+        reason=None,
+    ):
+        symbol = self._normalize_symbol(symbol)
+
+        pnl_pct = 0.0
+        try:
+            if entry_price and float(entry_price) > 0:
+                pnl_pct = (float(exit_price) - float(entry_price)) / float(entry_price)
+        except Exception:
+            pnl_pct = 0.0
+
+        duration_seconds = max(0.0, float(duration_seconds or 0.0))
+
+        # 1) STOP muito rápido = provável erro de timing / virada brusca
+        if pnl_usdc < 0 and duration_seconds <= self.drc_fast_stop_seconds:
+            release_ts = self._now_ts() + self.drc_fast_stop_cooldown
+            self.pair_cooldowns[symbol] = release_ts
+
+            print(
+                f"[DRC] {symbol} FAST STOP | "
+                f"duration={duration_seconds:.0f}s | "
+                f"cooldown={self.drc_fast_stop_cooldown}s | "
+                f"reason={reason}"
+            )
+            return
+
+        # 2) STOP curto = bloqueio intermediário
+        if pnl_usdc < 0 and duration_seconds <= self.drc_quick_stop_seconds:
+            release_ts = self._now_ts() + self.drc_quick_stop_cooldown
+            self.pair_cooldowns[symbol] = release_ts
+
+            print(
+                f"[DRC] {symbol} QUICK STOP | "
+                f"duration={duration_seconds:.0f}s | "
+                f"cooldown={self.drc_quick_stop_cooldown}s | "
+                f"reason={reason}"
+            )
+            return
+
+        # 3) lucro forte = exaustão, sem reentrada imediata
+        if pnl_usdc > 0 and pnl_pct >= self.drc_exhaustion_profit_pct:
+            release_ts = self._now_ts() + self.drc_exhaustion_cooldown
+            self.pair_cooldowns[symbol] = release_ts
+
+            print(
+                f"[DRC] {symbol} EXAUSTÃO | "
+                f"pnl_pct={pnl_pct*100:.2f}% | "
+                f"duration={duration_seconds:.0f}s | "
+                f"cooldown={self.drc_exhaustion_cooldown}s"
+            )
+            return
+
+        # 4) lucro bom/saudável = cooldown menor, mas ainda protetivo
+        if pnl_usdc > 0 and pnl_pct >= self.drc_good_profit_pct:
+            release_ts = self._now_ts() + self.drc_good_profit_cooldown
+            self.pair_cooldowns[symbol] = release_ts
+
+            print(
+                f"[DRC] {symbol} GOOD PROFIT | "
+                f"pnl_pct={pnl_pct*100:.2f}% | "
+                f"duration={duration_seconds:.0f}s | "
+                f"cooldown={self.drc_good_profit_cooldown}s"
+            )
+            return
+
 
     def _is_pair_blocked(self, symbol: str) -> bool:
         symbol = self._normalize_symbol(symbol)
@@ -1253,6 +1337,19 @@ class SlotController:
                 except Exception as e:
                     print(f"[POSITION MANAGER CLOSE ERROR] {slot.pair} | erro={e}")
 
+            exit_ts = time.time()
+            entry_ts = 0.0
+
+            try:
+                if self.position_manager:
+                    pos = self.position_manager.get_position(symbol=slot.pair)
+                    if pos and hasattr(pos, "opened_at") and pos.opened_at:
+                        entry_ts = float(pos.opened_at)
+            except Exception:
+                entry_ts = 0.0
+
+            duration_seconds = max(0.0, exit_ts - entry_ts) if entry_ts > 0 else 0.0
+
             trade = {
                 "pair": result.pair,
                 "entry": result.entry_price,
@@ -1260,7 +1357,8 @@ class SlotController:
                 "qty": result.quantity,
                 "profit": result.net_pnl_usdc,
                 "reason": str(reason),
-                "ts": time.time(),
+                "ts": exit_ts,
+                "duration_seconds": duration_seconds,
             }
 
             self.trade_history.append(trade)
@@ -1296,6 +1394,15 @@ class SlotController:
 
             else:
                 self._register_win_recovery(result.pair)
+
+            self._register_dynamic_reentry_control(
+                symbol=result.pair,
+                pnl_usdc=result.net_pnl_usdc,
+                entry_price=result.entry_price,
+                exit_price=result.exit_price,
+                duration_seconds=duration_seconds,
+                reason=reason,
+            )
             print(
                 f"[TRADE] {result.pair} | "
                 f"entry={result.entry_price:.6f} exit={result.exit_price:.6f} "

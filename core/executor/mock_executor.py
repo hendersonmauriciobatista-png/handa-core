@@ -6,6 +6,7 @@
 from types import SimpleNamespace
 import json
 import os
+import subprocess
 from datetime import datetime
 
 def format_buy_telegram(pair: str, entry: float, capital: float) -> str:
@@ -36,6 +37,10 @@ class MockExecutor:
 
         self.initial_balance = float(initial_balance)
         self.state_file = "storage/mock_state.json"
+  
+        self.git_persist_enabled = True
+        self.git_state_commit_message = "chore: update mock state"  
+
 
         self.notifier = notifier
 
@@ -236,6 +241,44 @@ class MockExecutor:
         except Exception as e:
             print(f"[MOCK STATE ERROR - LOAD] {e}")
 
+    def _persist_state_to_git(self):
+        if not self.git_persist_enabled:
+            return
+
+        try:
+            state_path = self.state_file.replace("\\", "/")
+
+            subprocess.run(
+                ["git", "add", state_path],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            commit_result = subprocess.run(
+                ["git", "commit", "-m", self.git_state_commit_message],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            # se não houver nada novo para commit, não faz push
+            if commit_result.returncode != 0:
+                return
+
+            subprocess.run(
+                ["git", "push"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            print(f"[MOCK STATE] persistido no Git | file={state_path}")
+
+        except Exception as e:
+            print(f"[MOCK STATE GIT ERROR] {e}")
+
+
     def _save_state(self):
         try:
             os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
@@ -257,6 +300,8 @@ class MockExecutor:
 
             with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+
+            self._persist_state_to_git()
 
         except Exception as e:
             print(f"[MOCK STATE ERROR - SAVE] {e}")

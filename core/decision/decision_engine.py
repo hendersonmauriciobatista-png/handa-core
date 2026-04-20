@@ -157,6 +157,19 @@ class DecisionEngine:
         # 1. BLOQUEIO DE REENTRADA
         if self.last_traded_symbol == pair:
 
+            # ======================================================
+            # 🔥 DRC — COOLDOWN TEMPORAL
+            # ======================================================
+            cooldown_seconds = 300  # 5 minutos
+
+            last_time = getattr(self, "last_trade_time", 0)
+            now = datetime.utcnow().timestamp()
+
+            if now - last_time < cooldown_seconds:
+                logger.info(f"[DRC] BLOQUEADO POR COOLDOWN: {pair}")
+                return None
+
+
             recent_loss = getattr(self, "last_trade_was_loss", False)
 
             reentry_allowed = (

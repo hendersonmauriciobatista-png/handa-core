@@ -634,30 +634,11 @@ class DecisionEngine:
                                 )
                                 return None
                     
-                        if allow_premium_override:
-                            logger.info(
-                                f"[ALO GATE] CAUTION_PASS {pair} | "
-                                f"motivo=SETUP_PREMIUM_OVERRIDE | "
-                                f"status={alo_status} | "
-                                f"conf={alo_confidence:.2f} | "
-                                f"base_conf={confidence:.3f} | "
-                                f"mqii_state={mqii_state} | "
-                                f"mqii_score={mqii_score:.3f}"
-                            )
+                       
 
-                            signal_reasons.append(
-                                "ALO premium override: veto rebaixado para cautela"
-                            )
-                        else:
-                            logger.info(
-                                f"[ALO GATE] BLOQUEADO {pair} | "
-                                f"status={alo_status} | conf={alo_confidence:.2f}"
-                            )
-                            return None
-
-                    signal_reasons.append(
-                        f"ALO status: {alo_status} | conf={alo_confidence:.2f}"
-                    )
+                signal_reasons.append(
+                    f"ALO status: {alo_status} | conf={alo_confidence:.2f}"
+                )
 
             except Exception as e:
                 logger.warning(f"[ALO GATE ERROR] {e}")

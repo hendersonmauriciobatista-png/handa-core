@@ -59,6 +59,20 @@ class AutoLoop:
 
                 active_positions = self.slot_controller.get_active_positions()
 
+                try:
+                    if hasattr(self.slot_controller, "alo") and self.slot_controller.alo:
+                        alo_summary = self.slot_controller.alo.get_learning_summary()
+
+                        print(
+                            f"[ALO] symbols={alo_summary.get('total_symbols', 0)} | "
+                            f"approved={alo_summary.get('approved_symbols', 0)} | "
+                            f"learning={alo_summary.get('learning_symbols', 0)} | "
+                            f"blocked={alo_summary.get('blocked_symbols', 0)}"
+                        )
+                except Exception as alo_error:
+                    print(f"[AUTOLOOP ALO ERROR] {alo_error}")
+
+
                 print(f"Posições ativas: {active_positions}")
 
                 # executa ciclo do SlotController

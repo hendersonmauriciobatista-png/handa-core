@@ -211,8 +211,6 @@ class MarketRankingEngine:
             pass
 
         base_market_context = {
-            "liquidity_score": 0.0,
-            "liquidity_label": "",
             "avg_volume_ratio": round(avg_volume_ratio_real, 4),
             "uptrend_count": uptrend_count_real,
             "refined_count": 0,
@@ -592,8 +590,6 @@ class MarketRankingEngine:
 
                 # 🔥 ATUALIZA CONTEXTO NO MOMENTO REAL DA APROVAÇÃO
                 token["market_context"] = {
-                    "liquidity_score": 0.0,
-                    "liquidity_label": "",
                     "avg_volume_ratio": round(avg_volume_ratio_real, 4),
                     "uptrend_count": uptrend_count_real,
                     "refined_count": refined_count_real,
@@ -608,8 +604,7 @@ class MarketRankingEngine:
         ranked.sort(key=lambda x: x.get("score", 0), reverse=True)
 
         final_market_snapshot = {
-            "liquidity_score": 0.0,
-            "liquidity_label": "",
+            
             "avg_volume_ratio": round(avg_volume_ratio_real, 4),
             "uptrend_count": uptrend_count_real,
             "refined_count": refined_count_real,

@@ -775,6 +775,15 @@ class MarketRadarEngine:
                     market_snapshot=ranking_market_snapshot,
                 )
 
+                # ============================================
+                # CORREÇÃO — SINCRONIZA LIQUIDEZ NO SNAPSHOT
+                # ============================================
+                if isinstance(ranking_market_snapshot, dict):
+                    ranking_market_snapshot["liquidity_score"] = liquidity_data.get("liquidity_score", 0.0)
+                    ranking_market_snapshot["liquidity_label"] = liquidity_data.get("liquidity_label", "")
+                    ranking_market_snapshot["liquidity_message"] = liquidity_data.get("liquidity_message", "")
+
+
                 mqii_snapshot = self.mqii.evaluate_market(
                     all_analyses=raw_ranking,
                     refined_tokens=refined,

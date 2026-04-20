@@ -503,21 +503,65 @@ class MarketRankingEngine:
 
                 # ------------------------------------------------
                 # FILTRO FINAL DE QUALIDADE
-                # Conservador, mas sem matar todo começo de movimento
+                # Conservador, mas com Lei do Dinamismo contextual
                 # ------------------------------------------------
                 quality_ok = False
+
+                market_context = token.get("market_context", {}) or {}
+
+                liquidity_score_ctx = self._safe_float(
+                    market_context.get("liquidity_score", 0.0), 0.0
+                )
+                uptrend_count_ctx = int(market_context.get("uptrend_count", 0) or 0)
+                avg_volume_ratio_ctx = self._safe_float(
+                    market_context.get("avg_volume_ratio", 0.0), 0.0
+                )
+
+                dynamic_neutral_volume_min = 0.95
+                dynamic_neutral_rsi_min = 43
+                dynamic_neutral_rsi_max = 67
+
+                cautiously_operable_context = (
+                    uptrend_count_ctx >= 10
+                    and avg_volume_ratio_ctx >= 0.35
+                    and market_score >= 0.30
+                )
+
+                healthy_context = (
+                    liquidity_score_ctx >= 0.60
+                    and uptrend_count_ctx >= 12
+                    and avg_volume_ratio_ctx >= 0.80
+                )
+
+                if cautiously_operable_context:
+                    dynamic_neutral_volume_min = 0.75
+                    dynamic_neutral_rsi_min = 42
+                    dynamic_neutral_rsi_max = 68
+
+                if healthy_context:
+                    dynamic_neutral_volume_min = 0.95
+                    dynamic_neutral_rsi_min = 43
+                    dynamic_neutral_rsi_max = 67
 
                 # Caminho A — forte/preferencial
                 if momentum == "BULLISH":
                     quality_ok = True
 
-                # Caminho B — neutro com confirmação técnica
+                # Caminho B — neutro com confirmação técnica dinâmica
                 elif momentum == "NEUTRAL":
-                    if volume_ratio >= 0.95 and 43 <= rsi <= 67:
+                    if (
+                        volume_ratio >= dynamic_neutral_volume_min
+                        and dynamic_neutral_rsi_min <= rsi <= dynamic_neutral_rsi_max
+                    ):
                         quality_ok = True
 
                 # Caminho C — score técnico forte mesmo sem momentum ideal
-                if not quality_ok and score >= 0.55 and volume_ratio >= 1.0 and 45 <= rsi <= 68:
+                if (
+                    not quality_ok
+                    and score >= 0.55
+                    and volume_ratio >= 1.0
+                    and 45 <= rsi <= 68
+                ):
                     quality_ok = True
                     # log removido (radar filter - liberação controlada por score forte)
 
@@ -529,7 +573,12 @@ class MarketRankingEngine:
                     self._log_non_execution(
                         token,
                         "QUALITY_FILTER",
-                        "QUALITY_REJECTION",
+                        (
+                            "QUALITY_REJECTION_DYNAMIC|"
+                            f"vol_min={dynamic_neutral_volume_min:.2f}|"
+                            f"rsi_min={dynamic_neutral_rsi_min}|"
+                            f"rsi_max={dynamic_neutral_rsi_max}"
+                        ),
                     )
 
                     continue

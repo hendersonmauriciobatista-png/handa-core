@@ -723,7 +723,10 @@ class SlotController:
                 attempted_symbols.add(symbol)
                 continue
 
-            # REMOVIDO BLOQUEIO ENTRE CICLOS (ICfactory tuning)
+            if self._is_rejected_symbol_blocked(symbol):
+                print(f"[PICK BLOCK] {symbol} bloqueado por rejection cooldown")
+                attempted_symbols.add(symbol)
+                continue
 
             attempted_symbols.add(symbol)
             return opportunity, symbol

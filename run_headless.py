@@ -118,8 +118,10 @@ def run():
         client=client,
         executor=executor,
         risk_manager=risk_manager,
+
     )
 
+    slot_controller.alo = alo
     slot_controller.market_radar = radar
     slot_controller.position_manager = position_manager
     slot_controller.lc1_adapter = lc1_adapter

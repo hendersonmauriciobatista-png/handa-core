@@ -437,6 +437,7 @@ class PositionManager:
             if hasattr(self, "decision_engine") and self.decision_engine:
                 self.decision_engine.last_trade_was_loss = net_usdc < 0
                 self.decision_engine.last_traded_symbol = symbol_name
+                self.decision_engine.last_trade_time = datetime.utcnow().timestamp()
         except Exception as e:
             logger.warning(f"[Decision Sync] erro ao registrar último trade: {e}")
 

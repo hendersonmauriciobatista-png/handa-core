@@ -30,6 +30,7 @@ class SlotController:
         risk_manager=None,
         symbol: str = "BTCUSDC",
         cooldown: float = 2.0,
+        alo=None,
     ):
         self.symbol = symbol
         self.cooldown = cooldown
@@ -104,7 +105,7 @@ class SlotController:
         # =========================================================
         # ALO — LEARNING OBSERVER
         # =========================================================
-        self.alo = AdaptiveLearningObserver()
+        self.alo = alo
 
         self.notifier = TelegramNotifier(
             token="8696491310:AAF1czFwV394JaF4ur8sYxnUIlk5Irh3hWs",

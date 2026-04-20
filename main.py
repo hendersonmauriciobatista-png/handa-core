@@ -263,6 +263,7 @@ def main():
         client=client,
         executor=executor,
         risk_manager=risk_manager,
+        alo=alo,
     )
 
     slot_controller.market_radar = radar

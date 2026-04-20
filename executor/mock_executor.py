@@ -34,7 +34,7 @@ class MockExecutor:
         self.client = client
         self.position_manager = position_manager
         self.tracker = tracker
-        self.state_file = "storage/mock_state.json"
+        self.state_file = "/data/mock_state.json"
         self.notifier = notifier
 
         # valor inicial provisório

@@ -832,19 +832,29 @@ class SlotController:
                 # ==========================================================
                 # ALO GATE v1 (ALO + MQII CONSENSO)
                 # ==========================================================
+                # ==========================================================
                 try:
                     if signal:
 
                         from core.alo import AloVisionEngine
 
                         if not hasattr(self, "_alo_vision"):
-                            self._alo_vision = AloVisionEngine()
+                           self._alo_vision = AloVisionEngine()
 
                         # usa snapshot já existente
                         vision = self._alo_vision.analyze(
                             snapshot=snapshot,
-                            liquidity_data=getattr(self, "market_liquidity", None),
+                            liquidity_data=getattr(self.market_radar, "market_liquidity", None),
                         )
+
+                        # ======================================================
+                        # PROTEÇÃO — VISÃO INVÁLIDA
+                        # ======================================================
+                        if not vision or not hasattr(vision, "inference") or not vision.inference:
+                            print(f"[ALO GATE] visão inválida para {symbol}")
+                            signal = None
+                            self._block_rejected_symbol(symbol, cycles=1)
+                            continue
 
                         guide = vision.inference.guidance
                         confidence = vision.inference.confidence_label
@@ -887,7 +897,7 @@ class SlotController:
                         try:
                             if self.market_radar:
                                 mqii = getattr(
-                                    self.market_radar, "market_quality", None
+                                   self.market_radar, "market_quality", None
                                 )
                                 if mqii:
                                     mqii_state = (
@@ -905,14 +915,17 @@ class SlotController:
                         ):
 
                             print(
-                                f"[ALO GATE] BLOQUEADO NO CICLO {symbol} | "
-                                f"guide={guide} | conf={confidence} | mqii={mqii_state}"
+                               f"[ALO GATE] BLOQUEADO NO CICLO {symbol} | "
+                               f"guide={guide} | conf={confidence} | mqii={mqii_state}"
                             )
 
                             signal = None
 
                 except Exception as e:
                     print(f"[ALO GATE ERROR] {e}")
+                    signal = None
+                    self._block_rejected_symbol(symbol, cycles=1)
+
 
                 # ==========================================================
                 # BLOQUEIOS APÓS VALIDAÇÃO (ICfactory)
@@ -951,7 +964,7 @@ class SlotController:
                             )
 
                             market_liquidity = (
-                                getattr(self, "market_liquidity", {}) or {}
+                                getattr(self.market_radar, "market_liquidity", {}) or {}
                             )
 
                             event = self.lc1_adapter.build_event(

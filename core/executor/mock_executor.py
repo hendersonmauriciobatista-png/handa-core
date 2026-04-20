@@ -153,8 +153,17 @@ class MockExecutor:
                 entry=entry_price,
                 capital=allocated_usdc,
             )
-            self.notifier.send(msg)
 
+            print(f"[BUY NOTIFIER DEBUG] notifier_exists={self.notifier is not None}")
+            print(f"[BUY NOTIFIER DEBUG] msg={msg}")
+
+            try:
+               self.notifier.send(msg)
+               print("[BUY NOTIFIER DEBUG] send_called")
+            except Exception as e:
+                print(f"[BUY NOTIFIER ERROR] {e}")
+        else:
+            print("[BUY NOTIFIER DEBUG] notifier is None")
         return SimpleNamespace(
             pair=pair,
             entry_price=entry_price,

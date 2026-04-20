@@ -153,7 +153,11 @@ class MockExecutor:
                 entry=entry_price,
                 capital=allocated_usdc,
             )
+            print(f"[DEBUG TELEGRAM BUY] enviando BUY de {pair}")
             self.notifier.send(msg)
+            print(f"[DEBUG TELEGRAM BUY] BUY enviado com sucesso para {pair}")
+        else:
+            print(f"[DEBUG TELEGRAM BUY] notifier está None para {pair}")
 
         return SimpleNamespace(
             pair=pair,

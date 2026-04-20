@@ -456,15 +456,47 @@ class MarketRankingEngine:
                 # ------------------------------------------------
                 score = max(min(score, 1.0), 0.0)
 
-                if score < 0.30:
-                    # log removido (radar filter - score baixo)
+                                                         
+                # ======================================================
+                # LEI DO DINAMISMO — SCORE MÍNIMO CONTEXTUAL
+                # ======================================================
+                market_context = token.get("market_context", {}) or {}
 
+                liquidity_score_ctx = self._safe_float(
+                    market_context.get("liquidity_score", 0.0), 0.0
+                )
+                uptrend_count_ctx = int(market_context.get("uptrend_count", 0) or 0)
+                avg_volume_ratio_ctx = self._safe_float(
+                    market_context.get("avg_volume_ratio", 0.0), 0.0
+                )
+
+                dynamic_min_score = 0.30
+
+                cautiously_operable_context = (
+                    uptrend_count_ctx >= 10
+                    and avg_volume_ratio_ctx >= 0.35
+                    and market_score >= 0.30
+                )
+
+                healthy_context = (
+                    liquidity_score_ctx >= 0.60
+                    and uptrend_count_ctx >= 12
+                    and avg_volume_ratio_ctx >= 0.80
+                )
+
+                if cautiously_operable_context:
+                    dynamic_min_score = 0.25
+
+                if healthy_context:
+                    dynamic_min_score = 0.30
+
+                if score < dynamic_min_score:
                     self._radar_summary_local["SCORE_BAIXO"] += 1
 
                     self._log_non_execution(
                         token,
                         "SCORE_BAIXO",
-                        "LOW_SCORE",
+                        f"LOW_SCORE_DYNAMIC|min={dynamic_min_score:.2f}|score={score:.4f}",
                     )
 
                     continue

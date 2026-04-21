@@ -238,16 +238,7 @@ def main():
     )
     print("DecisionEngine iniciado")
 
-    # ==========================================================
-    # 🔥 ALO (ADAPTIVE LEARNING OBSERVER)
-    # ==========================================================
-    from core.learning.adaptive_learning_observer import AdaptiveLearningObserver
-
-    alo = AdaptiveLearningObserver()
-    print("ALO iniciado")
-
-    decision_engine.set_alo(alo)
-
+    
     # --------------------------------------------------------
     # RADAR
     # --------------------------------------------------------
@@ -258,13 +249,12 @@ def main():
     # SLOT CONTROLLER
     # --------------------------------------------------------
     slot_controller = SlotController(
-        slot_ids=[1, 2, 3, 4],
-        decision_engine=decision_engine,
-        client=client,
-        executor=executor,
-        risk_manager=risk_manager,
-        alo=alo,
-    )
+    slot_ids=[1, 2, 3, 4],
+    decision_engine=decision_engine,
+    client=client,
+    executor=executor,
+    risk_manager=risk_manager,
+)
 
     slot_controller.market_radar = radar
     slot_controller.balance = balance

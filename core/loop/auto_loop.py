@@ -100,40 +100,125 @@ class AutoLoop:
                 self.slot_controller.run_cycle()
 
                 # -----------------------------------------
-                # ALO VISION (READ-ONLY OBSERVER)
+                # ALO INTELIGENTE (ADVISORY MODE)
                 # -----------------------------------------
 
                 try:
-                    from core.alo import AloVisionEngine
+                    from core.alo_intelligence.alo_core import ALOIntelligentCore
+                    from core.alo_intelligence.alo_models import ALOMode, TechnicalContext, MacroMarketContext
 
-                    if not hasattr(self, "_alo_vision"):
-                        self._alo_vision = AloVisionEngine()
+                    if not hasattr(self, "_alo_intelligent"):
+                        self._alo_intelligent = ALOIntelligentCore(mode=ALOMode.ADVISORY)
 
-                    # snapshot atual (se existir)
                     snapshot = getattr(self.slot_controller, "last_snapshot", None)
+                    liquidity_data = getattr(self.slot_controller, "market_liquidity", None)
 
-                    # liquidez da UI / radar (se existir)
-                    liquidity_data = getattr(
-                        self.slot_controller, "market_liquidity", None
-                    )
+                    if snapshot:
 
-                    vision = self._alo_vision.analyze(
-                        snapshot=snapshot,
-                        liquidity_data=liquidity_data,
-                    )
+                        try:
+                            # ⚠️ Aqui você pode adaptar conforme sua estrutura real do snapshot
+                            technical = TechnicalContext(
+                                price=snapshot.get("price", 0.0),
+                                rsi=snapshot.get("rsi_14", 50.0),
+                                ema_fast=snapshot.get("ema_10", 0.0),
+                                ema_slow=snapshot.get("ema_20", 0.0),
+                                ema_trend=snapshot.get("ema_50", 0.0),
+                                volume_ratio=snapshot.get("volume_ratio", 1.0),
+                                trend=str(snapshot.get("trend", "")),
+                                momentum=str(snapshot.get("momentum", "")),
+                                market_state=str(snapshot.get("market_state", "")),
+                                selection_score=snapshot.get("selection_score", 0.5),
+                            )
 
-                    v = vision.inference
+                            macro = MacroMarketContext(
+                                liquidity_score=liquidity_data.get("liquidity_score", 0.5) if liquidity_data else 0.5,
+                                liquidity_label=liquidity_data.get("liquidity_label", "UNKNOWN") if liquidity_data else "UNKNOWN",
+                                liquidity_message="",
+                                avg_volume_ratio=liquidity_data.get("avg_volume_ratio", 1.0) if liquidity_data else 1.0,
+                                uptrend_count=liquidity_data.get("uptrend_count", 0) if liquidity_data else 0,
+                                refined_count=liquidity_data.get("refined_count", 0) if liquidity_data else 0,
+                                approved_count=liquidity_data.get("approved_count", 0) if liquidity_data else 0,
+                                total_assets=40,
+                            )
 
-                    if getattr(vision, "extra", {}).get("loggable", False):
-                        print(
-                            f"[ALO VISION] {vision.symbol} | "
-                            f"conf={v.confidence_label} | "
-                            f"guide={v.guidance} | "
-                            f"outcome={v.expected_outcome}"
-                        )
+                            guidance = self._alo_intelligent.evaluate(
+                                symbol=snapshot.get("symbol", "UNKNOWN"),
+                                technical=technical,
+                                macro=macro,
+                            )
+
+                            print(f"[ALO INTEL] {guidance.explainability_text}")
+
+                        except Exception as e:
+                            print(f"[ALO INTEL BUILD ERROR] {e}")
 
                 except Exception as e:
-                    print(f"[ALO VISION ERROR] {e}")
+                    print(f"[ALO INTEL ERROR] {e}")
+
+
+                # -----------------------------------------
+                # ALO INTELIGENTE (ADVISORY MODE)
+                # -----------------------------------------
+
+                try:
+                    from core.alo_intelligence.alo_core import ALOIntelligentCore
+                    from core.alo_intelligence.alo_models import ALOMode, TechnicalContext, MacroMarketContext
+
+                    if not hasattr(self, "_alo_intelligent"):
+                        self._alo_intelligent = ALOIntelligentCore(mode=ALOMode.ADVISORY)
+
+                    opportunities = getattr(self.slot_controller, "_last_opportunities", None)
+
+                    if not opportunities:
+                        opportunities = getattr(self.slot_controller, "last_opportunities", None)
+
+                    if not opportunities:
+                        opportunities = getattr(self.slot_controller, "opportunities", None)
+
+                    if opportunities:
+                        top = opportunities[0]
+
+                        snapshot = top.get("snapshot")
+                        analysis = top.get("analysis")
+                        market_context = top.get("market_context")
+
+                        technical = TechnicalContext(
+                            price=snapshot.price,
+                            rsi=snapshot.rsi_14,
+                            ema_fast=snapshot.ema_10,
+                            ema_slow=snapshot.ema_20,
+                            ema_trend=snapshot.ema_50,
+                            volume_ratio=snapshot.volume_ratio,
+                            trend=str(analysis.get("trend")),
+                            momentum=str(analysis.get("momentum")),
+                            market_state=str(analysis.get("market_state")),
+                            selection_score=top.get("selection_score", 0.5),
+                        )
+
+                        macro = MacroMarketContext(
+                            liquidity_score=market_context.get("avg_volume_ratio", 0.5),
+                            liquidity_label="AUTO",
+                            liquidity_message="",
+                            avg_volume_ratio=market_context.get("avg_volume_ratio", 1.0),
+                            uptrend_count=market_context.get("uptrend_count", 0),
+                            refined_count=market_context.get("refined_count", 0),
+                            approved_count=market_context.get("approved_count", 0),
+                            total_assets=market_context.get("total_assets", 40),
+                        )
+
+                        guidance = self._alo_intelligent.evaluate(
+                            symbol=top.get("symbol", "UNKNOWN"),
+                            technical=technical,
+                            macro=macro,
+                        )
+
+                        print(f"[ALO INTEL] {guidance.explainability_text}")
+
+                    else:
+                        print("[ALO INTEL] sem opportunities no ciclo")
+
+                except Exception as e:
+                    print(f"[ALO INTEL ERROR] {e}")
 
                 self.market_latency = int((time.time() - market_start) * 1000)
 

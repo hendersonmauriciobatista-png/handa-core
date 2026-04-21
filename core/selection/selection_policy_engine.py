@@ -497,18 +497,32 @@ class SelectionPolicyEngine:
         is_trending = self._check_structural_trend(data)
         is_sideways_ok = self._check_sideways_operable(data)
 
-        # Deve ser trending OU sideways operável
+        # ==========================================================
+        # PATCH H&A — STRUCTURAL FLEX v1
+        # ==========================================================
+
+        fail_count = 0
+
         if not is_trending and not is_sideways_ok:
             reasons.append("STRUCTURE_INVALID")
+            fail_count += 1
 
         if not self._check_structural_spread(data):
             reasons.append("SPREAD_INSUFFICIENT")
+            fail_count += 1
 
         if not self._check_structural_rsi(data):
             reasons.append("RSI_BELOW_MIN")
+            fail_count += 1
 
         if not self._check_structural_volume(data):
             reasons.append("VOLUME_BELOW_MIN")
+            fail_count += 1
+
+        # 🔥 NOVA REGRA:
+        # tolera até 1 falha estrutural leve
+        if fail_count <= 1:
+            reasons = []
 
             if reasons:
                 spread = 0.0

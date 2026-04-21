@@ -775,6 +775,8 @@ class SlotController:
 
         print("OPPORTUNITIES:", opportunities[:3])
 
+        self.last_opportunities = opportunities
+
         # ==========================================================
         # 2.1 MQII GATE (BLOQUEIO DE NOVAS ENTRADAS)
         # ==========================================================
@@ -941,6 +943,112 @@ class SlotController:
                     elif self._is_rejected_symbol_blocked(symbol):
                         print(f"[POST-CHECK BLOCK] {symbol} bloqueado por rejection cooldown")
                         signal = None
+
+                # ==========================================================
+                # ALO INTELIGENTE GATE v1 (INFLUÊNCIA LEVE)
+                # ==========================================================
+                if signal:
+                    try:
+                        from core.alo_intelligence.alo_core import ALOIntelligentCore
+                        from core.alo_intelligence.alo_models import (
+                            ALOMode,
+                            TechnicalContext,
+                            MacroMarketContext,
+                            GuidanceType,
+                        )
+
+                        if not hasattr(self, "_alo_intelligent"):
+                            self._alo_intelligent = ALOIntelligentCore(mode=ALOMode.ADVISORY)
+
+                        snapshot_obj = opportunity.get("snapshot")
+                        analysis_data = opportunity.get("analysis", {}) or {}
+                        market_context_data = opportunity.get("market_context", {}) or {}
+
+                        technical = TechnicalContext(
+                            price=float(getattr(snapshot_obj, "price", 0.0)),
+                            rsi=float(getattr(snapshot_obj, "rsi_14", 50.0)),
+                            ema_fast=float(getattr(snapshot_obj, "ema_10", 0.0)),
+                            ema_slow=float(getattr(snapshot_obj, "ema_20", 0.0)),
+                            ema_trend=float(getattr(snapshot_obj, "ema_50", 0.0)),
+                            volume_ratio=float(getattr(snapshot_obj, "volume_ratio", 1.0)),
+                            trend=str(analysis_data.get("trend", "")),
+                            momentum=str(analysis_data.get("momentum", "")),
+                            market_state=str(analysis_data.get("market_state", "")),
+                            selection_score=float(opportunity.get("selection_score", 0.0)),
+                            market_score=float(opportunity.get("score", 0.0)),
+                            base_score=float(opportunity.get("base_score", 0.0)),
+                            penalty=float(opportunity.get("penalty", 0.0)),
+                        )
+
+                        macro = MacroMarketContext(
+                            liquidity_score=float(
+                                getattr(
+                                    getattr(self.market_radar, "market_liquidity", {}) or {},
+                                    "get",
+                                    lambda *_: 0.5,
+                                )("liquidity_score", 0.5)
+                            ),
+                            liquidity_label=str(
+                                getattr(
+                                    getattr(self.market_radar, "market_liquidity", {}) or {},
+                                    "get",
+                                    lambda *_: "UNKNOWN",
+                                )("liquidity_label", "UNKNOWN")
+                            ),
+                            liquidity_message=str(
+                                getattr(
+                                    getattr(self.market_radar, "market_liquidity", {}) or {},
+                                    "get",
+                                    lambda *_: "",
+                                )("liquidity_message", "")
+                            ),
+                            avg_volume_ratio=float(market_context_data.get("avg_volume_ratio", 1.0)),
+                            uptrend_count=int(market_context_data.get("uptrend_count", 0)),
+                            refined_count=int(market_context_data.get("refined_count", 0)),
+                            approved_count=int(market_context_data.get("approved_count", 0)),
+                            total_assets=int(market_context_data.get("total_assets", 40)),
+                            market_regime_internal=str(
+                                getattr(
+                                    getattr(self.market_radar, "market_quality", {}) or {},
+                                    "get",
+                                    lambda *_: "",
+                                )("state", "")
+                            ),
+                        )
+
+                        guidance = self._alo_intelligent.evaluate(
+                            symbol=symbol,
+                            technical=technical,
+                            macro=macro,
+                        )
+
+                        print(f"[ALO INTEL GATE] {guidance.explainability_text}")
+
+                        if guidance.guidance in (
+                            GuidanceType.HARD_BLOCK,
+                            GuidanceType.TEMPORARY_BLOCK,
+                        ):
+                            print(
+                                f"[ALO INTEL GATE] BLOQUEADO {symbol} | "
+                                f"guidance={guidance.guidance.value}"
+                            )
+                            signal = None
+                            self._block_rejected_symbol(symbol, cycles=2)
+
+                        elif guidance.guidance == GuidanceType.REQUIRE_STRONGER_CONFIRMATION:
+                            selection_score = float(opportunity.get("selection_score", 0.0))
+
+                            if selection_score < 0.85:
+                                print(
+                                    f"[ALO INTEL GATE] CONFIRMAÇÃO INSUFICIENTE {symbol} | "
+                                    f"guidance={guidance.guidance.value} | "
+                                    f"selection_score={selection_score:.4f}"
+                                )
+                                signal = None
+                                self._block_rejected_symbol(symbol, cycles=1)
+
+                    except Exception as e:
+                        print(f"[ALO INTEL GATE ERROR] {symbol} | erro={e}")
 
                 
                     attempted_symbols.add(symbol)

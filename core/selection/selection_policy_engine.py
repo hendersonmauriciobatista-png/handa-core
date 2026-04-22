@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from core.lc1.lc1_logger import LC1Logger
 from typing import List
 from core.dynamic_policy.lc1e_feedback_adapter import LC1EFeedbackAdapter
-
+from core.selection_dynamic.selection_dynamic_policy import SelectionDynamicPolicy
 # =============================================================================
 # DATA STRUCTURES
 # =============================================================================
@@ -86,6 +86,7 @@ class SelectionPolicyEngine:
 
     def __init__(self):
         self.lc1e = LC1EFeedbackAdapter()
+        self.dynamic_policy = SelectionDynamicPolicy()
         print("[SelectionPolicyEngine] inicializado")
 
     # -------------------------------------------------------------------------
@@ -198,7 +199,8 @@ class SelectionPolicyEngine:
         # =========================
         # FINAL DECISION
         # =========================
-        approved = self._check_min_score(final_score, data)
+        market_context = token.get("market_context", {}) or {}
+        approved = self._check_min_score(final_score, data, market_context)
 
         decision = self._build_decision(
             data=data,
@@ -665,34 +667,42 @@ class SelectionPolicyEngine:
         score = max(min(score, 1.0), 0.0)
         return round(score, 4)
 
-    def _check_min_score(self, final_score: float, data: SelectionInput) -> bool:
+    def _check_min_score(
+        self,
+        final_score: float,
+        data: SelectionInput,
+        market_context: dict,
+    ) -> bool:
         real_score = float(final_score)
 
-        # -----------------------------------------------------
-        # 🔥 THRESHOLD DINÂMICO
-        # -----------------------------------------------------
-        trend = str(data.trend).strip().upper()
-        momentum = str(data.momentum).strip().upper()
-        volume = float(data.volume_ratio)
+        dynamic_context = {
+            "mqii_state": str(market_context.get("mqii_state", "CAUTIOUS")).upper(),
+            "liquidity_score": float(market_context.get("liquidity_score", 0.0) or 0.0),
+            "approved_count": int(market_context.get("approved_count", 0) or 0),
+            "uptrend_count": int(market_context.get("uptrend_count", 0) or 0),
+            "avg_volume_ratio": float(market_context.get("avg_volume_ratio", 0.0) or 0.0),
+        }
 
-        if trend == "UPTREND" and momentum == "BULLISH":
-            min_score = 0.28
-
-        elif trend == "UPTREND" and momentum == "NEUTRAL" and volume >= 1.2:
-            min_score = 0.26
-
-        elif trend == "UPTREND" and volume >= 1.5:
-            min_score = 0.25
-
-        else:
-            min_score = 0.30
-
-        print(
-            f"[MIN_SCORE DEBUG] score={real_score:.4f} | min={min_score:.4f} "
-            f"| trend={trend} | momentum={momentum} | vol={volume:.3f}"
+        result = self.dynamic_policy.evaluate(
+            data=data,
+            final_score=real_score,
+            market_context=dynamic_context,
         )
 
-        return real_score >= min_score
+        print(
+            f"[MIN_SCORE DEBUG] "
+            f"score={real_score:.4f} | "
+            f"mode={result.mode.value} | "
+            f"min={result.min_score_required:.4f} | "
+            f"approved={result.approved} | "
+            f"reason={result.reason} | "
+            f"trend={str(data.trend).strip().upper()} | "
+            f"momentum={str(data.momentum).strip().upper()} | "
+            f"state={str(data.market_state).strip().upper()} | "
+            f"vol={float(data.volume_ratio):.3f}"
+        )
+
+        return result.approved
 
     # -------------------------------------------------------------------------
     # DECISION / LOG

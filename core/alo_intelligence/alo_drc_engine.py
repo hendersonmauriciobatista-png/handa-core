@@ -30,14 +30,22 @@ class ALODRCAwareEngine:
         if memory.fast_stop_flag:
             return ReentryState.RESTRICTED
 
+        if (
+            temporal.minutes_since_last_failure is not None
+            and temporal.minutes_since_last_failure < 15
+            and memory.recent_failures >= 1
+            and memory.stagnation_count_recent >= 1
+        ):
+            return ReentryState.TEMP_BLOCK
+
         if memory.stagnation_count_recent >= 1:
-            return ReentryState.CAUTION
+            return ReentryState.RESTRICTED
 
         if (
             temporal.minutes_since_last_failure is not None
             and temporal.minutes_since_last_failure < 15
             and memory.recent_failures >= 1
         ):
-            return ReentryState.CAUTION
+            return ReentryState.RESTRICTED
 
         return ReentryState.CLEAN

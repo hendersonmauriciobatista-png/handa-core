@@ -50,33 +50,7 @@ class AutoLoop:
 
                 print(f"\n========== CICLO {self.cycle} ==========")
 
-                # -----------------------------------------
-                # ALO SUMMARY
-                # -----------------------------------------
-
-                try:
-                    alo = getattr(self.slot_controller, "alo", None)
-
-                    if alo:
-                        summary = alo.get_learning_summary()
-
-                        print(
-                            f"[ALO] symbols={summary['total_symbols']} | "
-                            f"approved={summary['approved_symbols']} | "
-                            f"learning={summary['learning_symbols']} | "
-                            f"blocked={summary['blocked_symbols']}"
-                        )
-
-                        for item in summary.get("top_symbols", [])[:3]:
-                            print(
-                                f"[ALO TOP] {item['symbol']} | "
-                                f"score={item['confidence_score']:.2f} | "
-                                f"attempts={item['attempts']} | "
-                                f"status={item['status']}"
-                            )
-
-                except Exception as e:
-                    print(f"[ALO ERROR] {e}")
+                
 
                 # -----------------------------------------
                 # API LATENCY
@@ -110,63 +84,7 @@ class AutoLoop:
                     if not hasattr(self, "_alo_intelligent"):
                         self._alo_intelligent = ALOIntelligentCore(mode=ALOMode.ADVISORY)
 
-                    snapshot = getattr(self.slot_controller, "last_snapshot", None)
-                    liquidity_data = getattr(self.slot_controller, "market_liquidity", None)
-
-                    if snapshot:
-
-                        try:
-                            # ⚠️ Aqui você pode adaptar conforme sua estrutura real do snapshot
-                            technical = TechnicalContext(
-                                price=snapshot.get("price", 0.0),
-                                rsi=snapshot.get("rsi_14", 50.0),
-                                ema_fast=snapshot.get("ema_10", 0.0),
-                                ema_slow=snapshot.get("ema_20", 0.0),
-                                ema_trend=snapshot.get("ema_50", 0.0),
-                                volume_ratio=snapshot.get("volume_ratio", 1.0),
-                                trend=str(snapshot.get("trend", "")),
-                                momentum=str(snapshot.get("momentum", "")),
-                                market_state=str(snapshot.get("market_state", "")),
-                                selection_score=snapshot.get("selection_score", 0.5),
-                            )
-
-                            macro = MacroMarketContext(
-                                liquidity_score=liquidity_data.get("liquidity_score", 0.5) if liquidity_data else 0.5,
-                                liquidity_label=liquidity_data.get("liquidity_label", "UNKNOWN") if liquidity_data else "UNKNOWN",
-                                liquidity_message="",
-                                avg_volume_ratio=liquidity_data.get("avg_volume_ratio", 1.0) if liquidity_data else 1.0,
-                                uptrend_count=liquidity_data.get("uptrend_count", 0) if liquidity_data else 0,
-                                refined_count=liquidity_data.get("refined_count", 0) if liquidity_data else 0,
-                                approved_count=liquidity_data.get("approved_count", 0) if liquidity_data else 0,
-                                total_assets=40,
-                            )
-
-                            guidance = self._alo_intelligent.evaluate(
-                                symbol=snapshot.get("symbol", "UNKNOWN"),
-                                technical=technical,
-                                macro=macro,
-                            )
-
-                            print(f"[ALO INTEL] {guidance.explainability_text}")
-
-                        except Exception as e:
-                            print(f"[ALO INTEL BUILD ERROR] {e}")
-
-                except Exception as e:
-                    print(f"[ALO INTEL ERROR] {e}")
-
-
-                # -----------------------------------------
-                # ALO INTELIGENTE (ADVISORY MODE)
-                # -----------------------------------------
-
-                try:
-                    from core.alo_intelligence.alo_core import ALOIntelligentCore
-                    from core.alo_intelligence.alo_models import ALOMode, TechnicalContext, MacroMarketContext
-
-                    if not hasattr(self, "_alo_intelligent"):
-                        self._alo_intelligent = ALOIntelligentCore(mode=ALOMode.ADVISORY)
-
+                    # 🔥 PEGAR OPPORTUNITIES REAIS
                     opportunities = getattr(self.slot_controller, "_last_opportunities", None)
 
                     if not opportunities:
@@ -175,6 +93,7 @@ class AutoLoop:
                     if not opportunities:
                         opportunities = getattr(self.slot_controller, "opportunities", None)
 
+                    # 🔥 SE EXISTE OPORTUNIDADE
                     if opportunities:
                         top = opportunities[0]
 
@@ -220,6 +139,7 @@ class AutoLoop:
                 except Exception as e:
                     print(f"[ALO INTEL ERROR] {e}")
 
+                
                 self.market_latency = int((time.time() - market_start) * 1000)
 
                 # EXECUTION LATENCY = MARKET (por enquanto)

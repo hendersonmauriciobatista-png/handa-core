@@ -44,6 +44,9 @@ class MockExecutor:
 
         self.notifier = notifier
 
+        if self.notifier is None and self.position_manager is not None:
+            self.notifier = getattr(self.position_manager, "notifier", None)
+
         self._load_state()
 
         # pair -> dict com dados da posição

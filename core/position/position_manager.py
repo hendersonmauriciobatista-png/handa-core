@@ -274,6 +274,23 @@ class PositionManager:
             if giveback >= PROFIT_GIVEBACK_LEVEL_1:
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
 
+                # =========================
+        # WEAKNESS EXIT (NOVO)
+        # =========================
+        # Sai se o trade perdeu força após já ter tido lucro
+        if pos.peak_pnl_pct >= 0.004:  # já teve pelo menos +0.4%
+
+            giveback = pos.peak_pnl_pct - pnl_pct
+
+            # perdeu força relevante
+            if giveback >= 0.002:  # devolveu 0.2%
+
+                # e o lucro atual já está fraco
+                if pnl_pct <= 0.0015:  # <= +0.15%
+
+                    return CloseReason.DYNAMIC_WEAKNESS
+
+
         # =========================
         # STAGNATION
         # =========================

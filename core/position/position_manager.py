@@ -228,6 +228,8 @@ class PositionManager:
         if pnl_pct > pos.peak_pnl_pct:
             pos.peak_pnl_pct = pnl_pct
 
+        giveback = pos.peak_pnl_pct - pnl_pct
+
         # =========================
         # HARD EXIT (INTELIGENTE)
         # =========================
@@ -250,14 +252,18 @@ class PositionManager:
             return None
 
         # =========================
+        # BREAK-EVEN PROTECTION
+        # =========================
+        if pos.peak_pnl_pct >= 0.0015:  # +0.15%
+
+            if pnl_pct <= 0.0002:  # ~ +0.02%
+                return CloseReason.DYNAMIC_PROFIT_PROTECTION
+
+
+        # =========================
         # PROTEÇÃO DE LUCRO
         # =========================
         if pos.peak_pnl_pct >= PROFIT_ARM_LEVEL_1:
-            giveback = pos.peak_pnl_pct - pnl_pct
-
-            # 🔒 REGRA CRÍTICA — nunca fechar no prejuízo
-            if pnl_pct <= 0:
-                return None
 
             if (
                 pos.peak_pnl_pct >= PROFIT_ARM_LEVEL_3
@@ -270,25 +276,9 @@ class PositionManager:
                 and giveback >= PROFIT_GIVEBACK_LEVEL_2
             ):
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
-
+  
             if giveback >= PROFIT_GIVEBACK_LEVEL_1:
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
-
-                # =========================
-        # WEAKNESS EXIT (NOVO)
-        # =========================
-        # Sai se o trade perdeu força após já ter tido lucro
-        if pos.peak_pnl_pct >= 0.004:  # já teve pelo menos +0.4%
-
-            giveback = pos.peak_pnl_pct - pnl_pct
-
-            # perdeu força relevante
-            if giveback >= 0.002:  # devolveu 0.2%
-
-                # e o lucro atual já está fraco
-                if pnl_pct <= 0.0015:  # <= +0.15%
-
-                    return CloseReason.DYNAMIC_WEAKNESS
 
 
         # =========================
@@ -388,7 +378,7 @@ class PositionManager:
         # =========================
         # DYNAMIC EXIT
         # =========================
-        if DYNAMIC_EXIT_ENABLED and hold_seconds >= min_dynamic_hold_seconds:
+        if DYNAMIC_EXIT_ENABLED:
             dynamic_reason = self._evaluate_dynamic_exit(pos, price)
             if dynamic_reason:
                 return dynamic_reason

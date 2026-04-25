@@ -262,12 +262,11 @@ class PositionManager:
         if pos.cycles_in_trade < MIN_HOLD_CYCLES:
             return None
 
-        # =========================
-        # BREAK-EVEN PROTECTION
-        # =========================
-        if pos.peak_pnl_pct >= 0.0015:  # +0.15%
-
-            if pnl_pct <= 0.0002:  # ~ +0.02%
+        # ========================================================
+        # 🔥 BREAK-EVEN MAIS INTELIGENTE
+        # ========================================================
+        if pos.peak_pnl_pct >= 0.0025:  # +0.25%
+            if pnl_pct <= 0.0005:       # ~ +0.05%
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
 
 
@@ -288,7 +287,7 @@ class PositionManager:
             ):
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
   
-            if giveback >= PROFIT_GIVEBACK_LEVEL_1:
+            if giveback >= PROFIT_GIVEBACK_LEVEL_1 * 1.5:
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
 
 

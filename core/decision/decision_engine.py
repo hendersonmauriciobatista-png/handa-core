@@ -283,7 +283,7 @@ class DecisionEngine:
 
                 approved = True
                 reasons.append("CAUTION_PASS_LIBERATION")
-
+        else:
 
             # ==========================================================
             # 🔥 PRÉ-MOVIMENTO (NOVO)

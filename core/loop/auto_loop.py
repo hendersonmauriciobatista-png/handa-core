@@ -97,7 +97,11 @@ class AutoLoop:
                         # 🔥 MULTI-SLOT DISPATCH REAL
                         # ======================================================
 
-                        available_slots = self.slot_controller.get_available_slots()
+                        available_slots = max(
+                            0,
+                            getattr(self.slot_controller, "max_slots", 4)
+                            - len(getattr(self.slot_controller, "active_positions", []))
+                        )
 
                         if available_slots > 0:
                             selected_ops = opportunities[:available_slots]

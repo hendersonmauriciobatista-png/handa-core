@@ -1201,7 +1201,7 @@ class SlotController:
                     continue
 
                 symbol, signal = approved_candidates[candidate_index]
-                candidate_index += 1
+                
 
                 slot.pair = symbol
                 slot.pending_buy_signal = signal
@@ -1210,7 +1210,8 @@ class SlotController:
                 self._unblock_rejected_symbol(symbol)
 
                 print(f"[SLOT {slot.slot_id}] BUY APROVADO (GLOBAL): {symbol}")
-
+                
+                candidate_index += 1
             # -------------------------------
             # PROCESSAMENTO NORMAL
             # -------------------------------

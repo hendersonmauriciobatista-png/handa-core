@@ -530,13 +530,16 @@ class DecisionEngine:
 
             except Exception as e:
                 logger.warning(f"[ALO DYNAMIC CORE ERROR] {e}")
-
+                
         # ==========================================================
         # 🔥 ALO GATE (FILTRO INTELIGENTE + EXCEÇÃO CONTROLADA)
         # ==========================================================
         if self.alo is not None:
             try:
                 profile = self.alo.get_symbol_profile(pair)
+
+                alo_confidence = 0.0
+                alo_status = "NO_PROFILE"
 
                 if profile is not None:
                     alo_confidence = float(getattr(profile, "confidence_score", 0.0))
@@ -559,20 +562,14 @@ class DecisionEngine:
                         confidence >= 0.70
                         and trend_raw.endswith("UPTREND")
                         and momentum_raw.endswith("BULLISH")
-                        and (
-                            volume_state_raw in ("HIGH", "MODERATE")
-                        )
-                        and (
-                            market_state_raw in (
-                                "BULLISH_STRONG",
-                                "AGGRESSIVE_OK",
-                                "TRADE_OK",
-                                "BULLISH_WEAK",
-                            )
+                        and volume_state_raw in ("HIGH", "MODERATE")
+                        and market_state_raw in (
+                            "BULLISH_STRONG",
+                            "AGGRESSIVE_OK",
+                            "TRADE_OK",
+                            "BULLISH_WEAK",
                         )
                     )
-                        
-                    
 
                     mqii_state = ""
                     mqii_score = 0.0
@@ -606,7 +603,9 @@ class DecisionEngine:
                     total_events = int(getattr(profile, "total_events", 0) or 0)
 
                     if total_events < 5:
-                        logger.info(f"[ALO LIBERADO SEM CONTEXTO] {pair} | events={total_events}")
+                        logger.info(
+                            f"[ALO LIBERADO SEM CONTEXTO] {pair} | events={total_events}"
+                        )
                     else:
                         if (
                             alo_status in ("BLOCKED", "REJECTED")
@@ -633,8 +632,6 @@ class DecisionEngine:
                                     f"status={alo_status} | conf={alo_confidence:.2f}"
                                 )
                                 return None
-                    
-                       
 
                 signal_reasons.append(
                     f"ALO status: {alo_status} | conf={alo_confidence:.2f}"

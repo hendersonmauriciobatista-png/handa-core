@@ -530,7 +530,7 @@ class DecisionEngine:
 
             except Exception as e:
                 logger.warning(f"[ALO DYNAMIC CORE ERROR] {e}")
-                
+
         # ==========================================================
         # 🔥 ALO GATE (FILTRO INTELIGENTE + EXCEÇÃO CONTROLADA)
         # ==========================================================
@@ -960,6 +960,38 @@ class DecisionEngine:
         ema_slow = float(snapshot.ema_slow or 0.0)
         rsi = float(snapshot.rsi or 0.0)
         volume_ratio = float(snapshot.volume_ratio or 0.0)
+
+        # ======================================================
+        # 🔥 MCE V2 — BLOQUEIO DE ENTRADA PRECOCE (SIDEWAYS FRACO)
+        # ======================================================
+        market_state_raw = (
+            str(getattr(snapshot, "market_state", "") or "").strip().upper()
+        )
+        trend_raw = (
+            str(getattr(snapshot, "trend", "") or "").strip().upper()
+        )
+        momentum_raw = (
+            str(getattr(snapshot, "momentum", "") or "").strip().upper()
+        )
+        volume_state_raw = (
+            str(getattr(snapshot, "volume_state", "") or "").strip().upper()
+        )
+
+        if (
+            market_state_raw == "SIDEWAYS"
+            and momentum_raw == "NEUTRAL"
+            and volume_state_raw == "LOW"
+        ):
+            reasons.append("MCE_V2: SIDEWAYS + NEUTRAL + LOW_VOLUME")
+            logger.info(
+                f"[MCE V2] BLOQUEADO | {symbol} | "
+                f"market_state={market_state_raw} | "
+                f"momentum={momentum_raw} | "
+                f"volume_state={volume_state_raw} | "
+                f"rsi={rsi:.2f} | vol={volume_ratio:.3f}"
+            )
+            return False, reasons, 0.0
+
 
         if price <= 0:
             reasons.append("Preço inválido")

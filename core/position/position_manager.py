@@ -221,6 +221,7 @@ class PositionManager:
 
         try:
             self.notifier.send(buy_msg)
+            print(f"[TELEGRAM BUY ENVIADO] {symbol_name}")
         except Exception as e:
             logger.warning("[TELEGRAM] Falha ao enviar BUY: %s", e)
        

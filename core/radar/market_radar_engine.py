@@ -523,6 +523,20 @@ class MarketRadarEngine:
             adjusted_item = self._apply_penalty_to_item(item)
 
             # =========================================================
+            # 🔥 INJETAR CONTEXTO DE MERCADO (CRÍTICO)
+            # =========================================================
+            market_context = {
+                "mqii_state": self._safe_upper(self.market_quality.get("state")),
+                "liquidity_score": self._to_float(self.market_liquidity.get("liquidity_score", 0.0)),
+                "approved_count": int(self.market_liquidity.get("approved_count", 0) or 0),
+                "uptrend_count": int(self.market_liquidity.get("uptrend_count", 0) or 0),
+                "avg_volume_ratio": self._to_float(self.market_liquidity.get("avg_volume_ratio", 0.0)),
+            }
+
+            adjusted_item["market_context"] = market_context
+
+
+            # =========================================================
             # SELECTION POLICY ENGINE (FILTRO SOBERANO)
             # =========================================================
             selection_decision = self.selection_engine.evaluate(item)

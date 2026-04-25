@@ -2,7 +2,7 @@
 # core/loop/auto_loop.py
 # AutoLoop do sistema H&A
 # SAFE COMPAT VERSION
-# LOOP PURO — SEM SELL PARALELO
+# LOOP PURO — MULTI-SLOT REAL
 # ============================================================
 
 import time
@@ -50,8 +50,6 @@ class AutoLoop:
 
                 print(f"\n========== CICLO {self.cycle} ==========")
 
-                
-
                 # -----------------------------------------
                 # API LATENCY
                 # -----------------------------------------
@@ -84,7 +82,7 @@ class AutoLoop:
                     if not hasattr(self, "_alo_intelligent"):
                         self._alo_intelligent = ALOIntelligentCore(mode=ALOMode.ADVISORY)
 
-                    # 🔥 PEGAR OPPORTUNITIES REAIS
+                    # 🔥 PEGAR OPPORTUNITIES
                     opportunities = getattr(self.slot_controller, "_last_opportunities", None)
 
                     if not opportunities:
@@ -93,45 +91,66 @@ class AutoLoop:
                     if not opportunities:
                         opportunities = getattr(self.slot_controller, "opportunities", None)
 
-                    # 🔥 SE EXISTE OPORTUNIDADE
                     if opportunities:
+
+                        # ======================================================
+                        # 🔥 MULTI-SLOT DISPATCH REAL
+                        # ======================================================
+
+                        available_slots = self.slot_controller.get_available_slots()
+
+                        if available_slots > 0:
+                            selected_ops = opportunities[:available_slots]
+
+                            for op in selected_ops:
+                                try:
+                                    self.slot_controller.process_opportunity(op)
+                                except Exception as e:
+                                    print(f"[AUTOLOOP ERROR] falha ao processar {op.get('symbol')}: {e}")
+
+                        # ======================================================
+                        # 🔥 USAR PRIMEIRO OP PARA CONTEXTO (ALO)
+                        # ======================================================
+
                         top = opportunities[0]
 
                         snapshot = top.get("snapshot")
                         analysis = top.get("analysis")
                         market_context = top.get("market_context")
 
-                        technical = TechnicalContext(
-                            price=snapshot.price,
-                            rsi=snapshot.rsi_14,
-                            ema_fast=snapshot.ema_10,
-                            ema_slow=snapshot.ema_20,
-                            ema_trend=snapshot.ema_50,
-                            volume_ratio=snapshot.volume_ratio,
-                            trend=str(analysis.get("trend")),
-                            momentum=str(analysis.get("momentum")),
-                            market_state=str(analysis.get("market_state")),
-                            selection_score=top.get("selection_score", 0.5),
-                        )
+                        if snapshot and analysis and market_context:
 
-                        macro = MacroMarketContext(
-                            liquidity_score=market_context.get("avg_volume_ratio", 0.5),
-                            liquidity_label="AUTO",
-                            liquidity_message="",
-                            avg_volume_ratio=market_context.get("avg_volume_ratio", 1.0),
-                            uptrend_count=market_context.get("uptrend_count", 0),
-                            refined_count=market_context.get("refined_count", 0),
-                            approved_count=market_context.get("approved_count", 0),
-                            total_assets=market_context.get("total_assets", 40),
-                        )
+                            technical = TechnicalContext(
+                                price=snapshot.price,
+                                rsi=snapshot.rsi_14,
+                                ema_fast=snapshot.ema_10,
+                                ema_slow=snapshot.ema_20,
+                                ema_trend=snapshot.ema_50,
+                                volume_ratio=snapshot.volume_ratio,
+                                trend=str(analysis.get("trend")),
+                                momentum=str(analysis.get("momentum")),
+                                market_state=str(analysis.get("market_state")),
+                                selection_score=top.get("selection_score", 0.5),
+                            )
 
-                        guidance = self._alo_intelligent.evaluate(
-                            symbol=top.get("symbol", "UNKNOWN"),
-                            technical=technical,
-                            macro=macro,
-                        )
+                            macro = MacroMarketContext(
+                                liquidity_score=market_context.get("avg_volume_ratio", 0.5),
+                                liquidity_label="AUTO",
+                                liquidity_message="",
+                                avg_volume_ratio=market_context.get("avg_volume_ratio", 1.0),
+                                uptrend_count=market_context.get("uptrend_count", 0),
+                                refined_count=market_context.get("refined_count", 0),
+                                approved_count=market_context.get("approved_count", 0),
+                                total_assets=market_context.get("total_assets", 40),
+                            )
 
-                        print(f"[ALO INTEL] {guidance.explainability_text}")
+                            guidance = self._alo_intelligent.evaluate(
+                                symbol=top.get("symbol", "UNKNOWN"),
+                                technical=technical,
+                                macro=macro,
+                            )
+
+                            print(f"[ALO INTEL] {guidance.explainability_text}")
 
                     else:
                         print("[ALO INTEL] sem opportunities no ciclo")
@@ -139,10 +158,7 @@ class AutoLoop:
                 except Exception as e:
                     print(f"[ALO INTEL ERROR] {e}")
 
-                
                 self.market_latency = int((time.time() - market_start) * 1000)
-
-                # EXECUTION LATENCY = MARKET (por enquanto)
                 self.execution_latency = self.market_latency
 
                 # -----------------------------------------

@@ -196,6 +196,25 @@ class SelectionPolicyEngine:
         partials = self._compute_partial_scores(data)
         final_score = self._compose_final_score(partials)
 
+        # ========================================================
+        # 🔥 ALO SCORE ADJUSTMENT (LIGHT)
+        # ========================================================
+        alo = token.get("alo_guidance")
+
+        if alo:
+            try:
+                confidence = str(getattr(alo, "confidence_level", "")).upper()
+
+                if confidence == "LOW":
+                    final_score -= 0.05
+
+                elif confidence == "HIGH":
+                    final_score += 0.03
+
+            except Exception as e:
+                print(f"[ALO SCORE ERROR] {data.symbol} | erro={e}")
+
+
         # =========================
         # FINAL DECISION
         # =========================

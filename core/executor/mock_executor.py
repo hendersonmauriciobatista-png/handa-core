@@ -248,6 +248,7 @@ class MockExecutor:
 
                 print(f"[MOCK STATE] carregado | balance={self.balance_usdc:.4f}")
             else:
+                print("[MOCK STATE] nenhum estado encontrado — criando novo")
                 self._save_state()
 
         except Exception as e:

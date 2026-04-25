@@ -298,7 +298,10 @@ class PositionManager:
         stagnation_cycles_required = max(STAGNATION_CYCLES, MIN_HOLD_CYCLES + 2)
         stagnation_max_pnl = min(STAGNATION_MAX_PNL, 0.0)
 
-        min_cycles_for_stagnation = max(stagnation_cycles_required, 90)
+        # ========================================================
+        # 🔥 STAGNATION ANTECIPADA (PATCH NOVO)
+        # ========================================================
+        min_cycles_for_stagnation = max(MIN_HOLD_CYCLES + 10, 30)
 
         if pos.cycles_in_trade >= min_cycles_for_stagnation:
             is_stagnant_range = STAGNATION_MIN_PNL <= pnl_pct <= stagnation_max_pnl

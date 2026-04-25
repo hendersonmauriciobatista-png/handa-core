@@ -106,12 +106,8 @@ class AutoLoop:
                         if available_slots > 0:
                             selected_ops = opportunities[:available_slots]
 
-                            for op in selected_ops:
-                                try:
-                                    self.slot_controller.process_opportunity(op)
-                                except Exception as e:
-                                    print(f"[AUTOLOOP ERROR] falha ao processar {op.get('symbol')}: {e}")
-
+                    if opportunities:
+                                  
                         # ======================================================
                         # 🔥 USAR PRIMEIRO OP PARA CONTEXTO (ALO)
                         # ======================================================

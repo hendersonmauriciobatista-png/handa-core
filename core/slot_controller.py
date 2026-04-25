@@ -1319,7 +1319,18 @@ class SlotController:
             # ========================================================
             mqii_multiplier = self._mqii_capital_multiplier()
             quality_multiplier = self._get_setup_quality_multiplier(signal, slot)
-            multiplier = mqii_multiplier * quality_multiplier
+
+            raw_multiplier = mqii_multiplier * quality_multiplier
+
+            # ========================================================
+            # POSITION SIZING DINÂMICO LIGHT
+            # ========================================================
+            # Regra conservadora:
+            # - nunca aumenta acima do capital base
+            # - reduz em mercado/qualidade fraca
+            # - preserva setup forte com capital cheio
+
+            multiplier = max(0.50, min(raw_multiplier, 1.00))
 
             original_capital = signal.allocated_usdc
             adjusted_capital = original_capital * multiplier

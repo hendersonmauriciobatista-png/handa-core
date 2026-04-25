@@ -586,14 +586,13 @@ class MarketRadarEngine:
                     )
 
             # ========================================================
-            # 🔥 MCE TEMPORARIAMENTE DESATIVADO (AJUSTE DE COMPATIBILIDADE)
+            # 🔥 MCE — CONFIRMAÇÃO DE ENTRADA
             # ========================================================
-            # mce_market_data = self._build_mce_market_data(adjusted_item)
-            # mce_result = self.mce.confirm(mce_market_data)
-            #
-            # if not mce_result:
-            #     print(f"[RADAR FILTER] {symbol} REJEITADO no MCE")
-            #     continue
+            mce_result = self.mce.confirm(adjusted_item)
+
+            if not mce_result:
+                print(f"[RADAR FILTER] {symbol} REJEITADO no MCE")
+                continue
             
 
             dynamic_min_final_score = self._get_dynamic_min_final_score()

@@ -259,6 +259,33 @@ class DecisionEngine:
         if not approved:
 
             # ==========================================================
+            # 🔥 CAUTION_PASS — LIBERAÇÃO CONTROLADA
+            # ==========================================================
+            market_state_raw = str(getattr(snapshot, "market_state", "")).upper()
+            trend_raw = str(getattr(snapshot, "trend", "")).upper()
+            momentum_raw = str(getattr(snapshot, "momentum", "")).upper()
+            volume_ratio = float(snapshot.volume_ratio or 0.0)
+            rsi = float(snapshot.rsi or 0.0)
+
+            caution_pass = (
+                confidence >= 0.75
+                and trend_raw.endswith("UPTREND")
+                and volume_ratio >= 1.2
+                and 48 <= rsi <= 65
+                and market_state_raw in ("SIDEWAYS", "CAUTIOUS", "MODERATE", "TRADE_OK")
+            )
+
+            if caution_pass:
+                logger.info(
+                    f"[CAUTION PASS] LIBERADO {pair} | "
+                    f"conf={confidence:.3f} | vol={volume_ratio:.2f} | rsi={rsi:.2f}"
+                )
+
+                approved = True
+                reasons.append("CAUTION_PASS_LIBERATION")
+
+
+            # ==========================================================
             # 🔥 PRÉ-MOVIMENTO (NOVO)
             # ==========================================================
             pre_ok, pre_reasons, pre_confidence = self._check_pre_movement_entry(

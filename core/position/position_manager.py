@@ -343,6 +343,18 @@ class PositionManager:
         
 
         # =========================
+        # FAST FAILURE CUT
+        # =========================
+        # Se o trade falha rápido logo após a entrada,
+        # corta antes de virar loss grande.
+
+        if hold_seconds <= 45 and pnl_pct <= -0.002:
+            return CloseReason.STOP_LOSS
+
+        if hold_seconds <= 90 and pnl_pct <= -0.003:
+            return CloseReason.STOP_LOSS
+
+        # =========================
         # HARD STOP ABSOLUTO
         # NÃO respeita hold mínimo
         # Proteção máxima de capital

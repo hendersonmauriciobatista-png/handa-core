@@ -212,7 +212,17 @@ class PositionManager:
                 "source": "PositionManager",
             }
         )
+        
+        buy_msg = (
+            f"BUY | {symbol_name}\n"
+            f"ENTRY | {entry_price:.8f}\n"
+            f"CAPITAL | {capital_invested:.4f} USDC"
+        )
 
+        try:
+            self.notifier.send(buy_msg)
+        except Exception as e:
+            logger.warning("[TELEGRAM] Falha ao enviar BUY: %s", e)
        
         return pos
 

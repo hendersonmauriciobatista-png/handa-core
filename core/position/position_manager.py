@@ -459,6 +459,10 @@ class PositionManager:
         pos.close_reason = reason
         pos.closed_at = datetime.utcnow()
 
+        duration_seconds = int(
+            (pos.closed_at - pos.opened_at).total_seconds()
+        )
+
         pos.status = PositionStatus.CLOSED
         self._history.append(pos)
 
@@ -470,6 +474,7 @@ class PositionManager:
                 self.decision_engine.last_trade_was_loss = net_usdc < 0
                 self.decision_engine.last_traded_symbol = symbol_name
                 self.decision_engine.last_trade_time = datetime.utcnow().timestamp()
+                self.decision_engine.last_trade_duration = duration_seconds
         except Exception as e:
             logger.warning(f"[Decision Sync] erro ao registrar último trade: {e}")
 

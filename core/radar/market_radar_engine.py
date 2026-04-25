@@ -586,13 +586,17 @@ class MarketRadarEngine:
                     )
 
             # ========================================================
-            # 🔥 MCE — CONFIRMAÇÃO DE ENTRADA
+            # 🔥 MCE SOFT FILTER — NÃO BLOQUEAR TOTALMENTE
             # ========================================================
             mce_result = self.mce.confirm(adjusted_item)
 
             if not mce_result:
-                print(f"[RADAR FILTER] {symbol} REJEITADO no MCE")
-                continue
+                print(f"[RADAR FILTER] {symbol} MCE fraco (seguindo para decisão)")
+
+                # marca como fraco para o Decision decidir depois
+                adjusted_item["mce_weak"] = True
+            else:
+                adjusted_item["mce_weak"] = False
             
 
             dynamic_min_final_score = self._get_dynamic_min_final_score()

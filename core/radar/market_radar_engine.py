@@ -585,14 +585,15 @@ class MarketRadarEngine:
                         f"volume_ratio={volume_ratio:.2f} | rsi={rsi_value:.2f}"
                     )
 
-            # ===== MCE — CONFIRMAÇÃO DE ENTRADA =====
-            mce_market_data = self._build_mce_market_data(adjusted_item)
-            mce_result = self.mce.confirm(mce_market_data)
-
-            if not mce_result:
-                print(f"[RADAR FILTER] {symbol} REJEITADO no MCE")
-                continue
-            # =========================================
+            # ========================================================
+            # 🔥 MCE TEMPORARIAMENTE DESATIVADO (AJUSTE DE COMPATIBILIDADE)
+            # ========================================================
+            # mce_market_data = self._build_mce_market_data(adjusted_item)
+            # mce_result = self.mce.confirm(mce_market_data)
+            #
+            # if not mce_result:
+            #     print(f"[RADAR FILTER] {symbol} REJEITADO no MCE")
+            #     continue
             
 
             dynamic_min_final_score = self._get_dynamic_min_final_score()

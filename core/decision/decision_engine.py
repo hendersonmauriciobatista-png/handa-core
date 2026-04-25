@@ -321,8 +321,8 @@ class DecisionEngine:
 
             opportunity_context_ok = (
                 float(snapshot.ema_fast) > float(snapshot.ema_slow)
-                and float(snapshot.volume_ratio) >= 1.0
-                and 45 <= float(snapshot.rsi) <= 68
+                and float(snapshot.volume_ratio) >= 1.2
+                and 50 <= float(snapshot.rsi) <= 65
             )
 
             if (
@@ -983,7 +983,22 @@ class DecisionEngine:
         rsi = float(snapshot.rsi or 0.0)
         volume_ratio = float(snapshot.volume_ratio or 0.0)
 
-        
+        # ======================================================
+        # 🔥 PRE-MOVEMENT V2 — BLOQUEIO DE SPIKE FRACO
+        # ======================================================
+        if volume_ratio < 1.0:
+            reasons.append("PRE_V2: volume baixo")
+            logger.info(
+                f"[PRE V2] BLOQUEADO | {symbol} | volume baixo | vol={volume_ratio:.3f}"
+            )
+            return False, reasons, 0.0
+
+        if rsi < 50:
+            reasons.append("PRE_V2: RSI fraco")
+            logger.info(
+                f"[PRE V2] BLOQUEADO | {symbol} | RSI fraco | rsi={rsi:.2f}"
+            )
+            return False, reasons, 0.0
 
 
         if price <= 0:

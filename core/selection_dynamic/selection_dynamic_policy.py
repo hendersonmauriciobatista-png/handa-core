@@ -38,10 +38,52 @@ class SelectionDynamicPolicy:
         # ======================================================
         profile = self.thresholds.get_profile(mode)
 
-        trend = str(data.trend).upper()
-        momentum = str(data.momentum).upper()
-        market_state = str(data.market_state).upper()
+        trend = str(data.trend).strip().upper()
+        momentum = str(data.momentum).strip().upper()
+        market_state = str(data.market_state).strip().upper()
         volume = float(data.volume_ratio)
+
+        # ======================================================
+        # PATCH H&A — TREND MODE CONTEXTUAL v1
+        # ======================================================
+        # Permite entrada controlada em continuação de tendência
+        # quando o mercado está saudável, mesmo com momentum NEUTRAL.
+        #
+        # NÃO libera:
+        # - volume baixo
+        # - RSI extremo
+        # - tendência lateral
+        # - mercado sem contexto forte
+        # ======================================================
+
+        mqii_state = str(market_context.get("mqii_state", "")).strip().upper()
+        avg_volume_ratio = float(market_context.get("avg_volume_ratio", 0.0) or 0.0)
+        approved_count = int(market_context.get("approved_count", 0) or 0)
+        uptrend_count = int(market_context.get("uptrend_count", 0) or 0)
+        rsi = float(getattr(data, "rsi", 0.0) or 0.0)
+
+        is_contextual_trend_entry = (
+            mqii_state == "TRADE_OK"
+            and trend == "UPTREND"
+            and momentum == "NEUTRAL"
+            and market_state == "SIDEWAYS"
+            and volume >= 1.10
+            and avg_volume_ratio >= 1.50
+            and approved_count >= 3
+            and uptrend_count >= 15
+            and 45.0 <= rsi <= 65.0
+        )
+
+        if is_contextual_trend_entry:
+            min_score = min(profile.min_score_uptrend_neutral, 0.55)
+            approved = final_score >= min_score
+
+            return DynamicSelectionResult(
+                mode=mode,
+                approved=approved,
+                reason="TREND_CONTEXT_ENTRY_OK" if approved else "TREND_CONTEXT_SCORE_LOW",
+                min_score_required=min_score,
+            )
 
         # ======================================================
         # 3. BLOQUEIOS DIRETOS (ENTRY QUALITY)

@@ -794,6 +794,10 @@ class SlotController:
         attempted_symbols = set()
         approved_candidates = []
 
+        print("[SLOT DEBUG] slots:", {sid: slot.state for sid, slot in self._slots.items()})
+        print("[SLOT DEBUG] approved_candidates:", approved_candidates)
+
+
         # ==========================================================
         # 2.1 MQII GATE
         # ==========================================================
@@ -1054,6 +1058,7 @@ class SlotController:
                     attempted_symbols.add(symbol)
 
                 if signal:
+                    print(f"[SLOT DEBUG] CANDIDATO APROVADO: {symbol}")
                     approved_candidates.append((symbol, signal))
                 else:
                     

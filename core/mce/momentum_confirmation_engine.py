@@ -1,5 +1,6 @@
 # ============================================================
 # MOMENTUM CONFIRMATION ENGINE (MCE)
+# H&A — confirmação de entrada por ciclos
 # ============================================================
 
 from core.mce.mce_models import MCECandidate, MCEStatus
@@ -16,13 +17,18 @@ class MomentumConfirmationEngine:
     # ARMAR CANDIDATO
     # ========================================================
     def arm(self, token):
-
         symbol = token.get("symbol")
-        analysis = token.get("analysis", {})
+        analysis = token.get("analysis", {}) or {}
 
-        price = float(analysis.get("price", 0))
-        volume_ratio = float(analysis.get("volume_ratio", 0))
-        rsi = float(analysis.get("rsi", 50))
+        if not symbol:
+            return None
+
+        price = float(analysis.get("price", 0) or 0)
+        volume_ratio = float(analysis.get("volume_ratio", 0) or 0)
+        rsi = float(analysis.get("rsi", 50) or 50)
+
+        if price <= 0:
+            return None
 
         candidate = MCECandidate(
             symbol=symbol,
@@ -35,12 +41,45 @@ class MomentumConfirmationEngine:
         self.active_candidates[symbol] = candidate
 
         print(f"[MCE] ARMADO: {symbol}")
+        return candidate
+
+    # ========================================================
+    # CONFIRMAR CANDIDATO — COMPATIBILIDADE COM RADAR
+    # ========================================================
+    def confirm(self, token):
+        symbol = token.get("symbol")
+        analysis = token.get("analysis", {}) or {}
+
+        if not symbol:
+            return False
+
+        symbol = str(symbol).strip().upper()
+
+        if symbol not in self.active_candidates:
+            self.arm(token)
+            return False
+
+        market_data = {
+            symbol: {
+                "price": float(analysis.get("price", 0) or 0),
+                "volume_ratio": float(analysis.get("volume_ratio", 0) or 0),
+                "rsi": float(analysis.get("rsi", 50) or 50),
+                "momentum": self._normalize_value(analysis.get("momentum")),
+            }
+        }
+
+        confirmed = self.update(market_data)
+
+        if symbol in confirmed:
+            print(f"[MCE] CONFIRMADO: {symbol}")
+            return True
+
+        return False
 
     # ========================================================
     # ATUALIZAR CANDIDATOS
     # ========================================================
     def update(self, market_data):
-
         self.current_cycle += 1
 
         confirmed = []
@@ -53,10 +92,15 @@ class MomentumConfirmationEngine:
             if not data:
                 continue
 
-            price = float(data.get("price", 0))
-            volume_ratio = float(data.get("volume_ratio", 0))
-            rsi = float(data.get("rsi", 50))
-            momentum = data.get("momentum")
+            price = float(data.get("price", 0) or 0)
+            volume_ratio = float(data.get("volume_ratio", 0) or 0)
+            rsi = float(data.get("rsi", 50) or 50)
+            momentum = self._normalize_value(data.get("momentum"))
+
+            if price <= 0 or candidate.reference_price <= 0:
+                candidate.status = MCEStatus.CANCELLED
+                removed.append(symbol)
+                continue
 
             # ---------------------------
             # CANCELAMENTOS
@@ -64,11 +108,13 @@ class MomentumConfirmationEngine:
             if rsi >= MCE_HARD_RSI_LIMIT:
                 candidate.status = MCEStatus.CANCELLED
                 removed.append(symbol)
+                print(f"[MCE] CANCELADO RSI: {symbol}")
                 continue
 
             if momentum == "BEARISH":
                 candidate.status = MCEStatus.CANCELLED
                 removed.append(symbol)
+                print(f"[MCE] CANCELADO BEARISH: {symbol}")
                 continue
 
             # ---------------------------
@@ -77,14 +123,22 @@ class MomentumConfirmationEngine:
             if self.current_cycle - candidate.armed_cycle > MCE_CONFIRMATION_CYCLES:
                 candidate.status = MCEStatus.EXPIRED
                 removed.append(symbol)
+                print(f"[MCE] EXPIRADO: {symbol}")
                 continue
 
             # ---------------------------
             # CONFIRMAÇÃO
             # ---------------------------
-            price_change = (price - candidate.reference_price) / candidate.reference_price * 100
+            price_change = (
+                (price - candidate.reference_price)
+                / candidate.reference_price
+                * 100
+            )
 
-            volume_ok = volume_ratio >= candidate.reference_volume_ratio * MCE_MIN_VOLUME_RETENTION
+            volume_ok = (
+                volume_ratio
+                >= candidate.reference_volume_ratio * MCE_MIN_VOLUME_RETENTION
+            )
 
             if (
                 price_change >= MCE_MIN_PRICE_PROGRESS
@@ -95,9 +149,26 @@ class MomentumConfirmationEngine:
                 candidate.status = MCEStatus.CONFIRMED
                 confirmed.append(symbol)
                 removed.append(symbol)
+                continue
 
-        # limpar candidatos finalizados
         for symbol in removed:
             self.active_candidates.pop(symbol, None)
 
         return confirmed
+
+    # ========================================================
+    # NORMALIZAÇÃO
+    # ========================================================
+    def _normalize_value(self, value):
+        if value is None:
+            return ""
+
+        if hasattr(value, "value"):
+            return str(value.value).strip().upper()
+
+        raw = str(value).strip()
+
+        if "." in raw:
+            raw = raw.split(".")[-1]
+
+        return raw.upper()

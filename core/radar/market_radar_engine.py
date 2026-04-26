@@ -609,6 +609,14 @@ class MarketRadarEngine:
             mqii_state = self._safe_upper(self.market_quality.get("state"))
             liquidity_score = self._to_float(self.market_liquidity.get("liquidity_score", 0.0))
 
+            # ======================================================
+            # 🔥 FALLBACK — CONTEXTO INICIAL (MQII NÃO PRONTO)
+            # ======================================================
+            if mqii_state in ("", "UNKNOWN") or liquidity_score <= 0:
+                mqii_state = "CAUTIOUS"
+                liquidity_score = 0.40
+
+
             if adjusted_item.get("mce_weak", False):
 
                 # mercado forte → tolera mais

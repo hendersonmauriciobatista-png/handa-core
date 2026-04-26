@@ -320,9 +320,14 @@ class MarketRadarEngine:
             default=0.0,
         )
         rsi_value = self._to_float(
-            analysis.get("rsi", getattr(snapshot, "rsi_14", 0.0)), default=0.0
+            analysis.get("rsi", getattr(snapshot, "rsi_14", 0.0)),
+            default=0.0,
         )
         raw_score = self._to_float(item.get("score", 0.0), default=0.0)
+
+        trend_state = self._safe_upper(analysis.get("trend"))
+        momentum_state = self._safe_upper(analysis.get("momentum"))
+        market_state = self._safe_upper(analysis.get("market_state"))
 
         if market_score < 0:
             self._count_radar_rejection("SCORE_BAIXO")
@@ -339,8 +344,6 @@ class MarketRadarEngine:
         if raw_score < 0:
             self._count_radar_rejection("SCORE_BAIXO")
             return False
-
-        return True
 
         if market_score < self.min_market_score:
             self._count_radar_rejection("SCORE_BAIXO")

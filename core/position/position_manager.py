@@ -350,10 +350,23 @@ class PositionManager:
         # Se o trade falha rápido logo após a entrada,
         # corta antes de virar loss grande.
 
-        if hold_seconds <= 45 and pnl_pct <= -0.002:
+        # =========================
+        # FAST FAILURE CUT — DINÂMICO v1
+        # =========================
+        if pos.peak_pnl_pct <= 0:
+            fast_cut_1 = -0.0015
+            fast_cut_2 = -0.0024
+        elif pos.peak_pnl_pct < 0.0015:
+            fast_cut_1 = -0.0018
+            fast_cut_2 = -0.0026
+        else:
+            fast_cut_1 = -0.0020
+            fast_cut_2 = -0.0028
+
+        if hold_seconds <= 20 and pnl_pct <= fast_cut_1:
             return CloseReason.STOP_LOSS
 
-        if hold_seconds <= 90 and pnl_pct <= -0.003:
+        if hold_seconds <= 90 and pnl_pct <= fast_cut_2:
             return CloseReason.STOP_LOSS
 
         # =========================

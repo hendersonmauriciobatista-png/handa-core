@@ -1166,6 +1166,9 @@ class DecisionEngine:
             and momentum_raw == "NEUTRAL"
             and volume_state_raw == "LOW"
         ):
+            
+        
+
             reasons.append("MCE_V2: SIDEWAYS + NEUTRAL + LOW_VOLUME")
             logger.info(
                 f"[MCE V2] BLOQUEADO | {symbol} | "
@@ -1175,6 +1178,23 @@ class DecisionEngine:
                 f"rsi={rsi:.2f} | vol={volume_ratio:.3f}"
             )
             return False, reasons, 0.0
+
+        # ======================================================
+        # 🔥 H&A PATCH — NEUTRAL PREMIUM LIBERATION (NOVO)
+        # ======================================================
+        neutral_premium = (
+            market_state_raw in ("SIDEWAYS", "CAUTIOUS")
+            and momentum_raw == "NEUTRAL"
+            and trend_raw.endswith("UPTREND")
+            and volume_ratio >= 2.5
+            and 40 <= rsi <= 58
+        )
+
+        if neutral_premium:
+            logger.info(
+                f"[MCE PATCH] NEUTRAL PREMIUM LIBERADO | {symbol} | "
+                f"rsi={rsi:.2f} | vol={volume_ratio:.2f}"
+            )
 
 
         if price <= 0:

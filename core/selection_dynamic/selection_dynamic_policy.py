@@ -103,8 +103,28 @@ class SelectionDynamicPolicy:
                 min_score_required=profile.min_score_other,
             )
 
-        # ❌ Bloqueio: momentum neutro fraco
+                # ❌ Bloqueio: momentum neutro fraco
         if momentum == "NEUTRAL":
+
+            # ======================================================
+            # 🔥 H&A PATCH — NEUTRAL PREMIUM SELECTION LIBERATION
+            # ======================================================
+            neutral_premium = (
+                trend == "UPTREND"
+                and market_state in ("SIDEWAYS", "CAUTIOUS")
+                and volume >= 2.5
+                and 40.0 <= rsi <= 58.0
+                and final_score >= 0.62
+            )
+
+            if neutral_premium:
+                return DynamicSelectionResult(
+                    mode=mode,
+                    approved=True,
+                    reason="NEUTRAL_PREMIUM_SELECTION_OK",
+                    min_score_required=0.62,
+                )
+
             if not profile.allow_neutral_entries:
                 return DynamicSelectionResult(
                     mode=mode,

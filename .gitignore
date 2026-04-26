@@ -15,3 +15,25 @@ __pycache__/
 
 # vscode
 .vscode/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Build / executáveis
+build/
+dist/
+*.spec
+
+# Ambientes virtuais
+.venv/
+venv/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Logs (opcional)
+*.log

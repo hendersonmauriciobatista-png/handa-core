@@ -89,12 +89,23 @@ class SelectionDynamicPolicy:
         # 3. BLOQUEIOS DIRETOS (ENTRY QUALITY)
         # ======================================================
 
-        # ❌ Bloqueio clássico: lateral fraco
+        # ❌ Bloqueio clássico: lateral fraco (com override dinâmico)
+
+        sideways_weak_override = (
+            trend == "UPTREND"
+            and momentum == "NEUTRAL"
+            and market_state == "SIDEWAYS"
+            and final_score >= 0.75
+            and volume >= 1.20
+            and 45.0 <= rsi <= 60.0
+        )
+
         if (
             trend == "UPTREND"
             and momentum != "BULLISH"
             and market_state == "SIDEWAYS"
             and volume < profile.min_volume_sideways
+            and not sideways_weak_override
         ):
             return DynamicSelectionResult(
                 mode=mode,
@@ -102,22 +113,8 @@ class SelectionDynamicPolicy:
                 reason="BLOCK_SIDEWAYS_WEAK",
                 min_score_required=profile.min_score_other,
             )
-
-                    # ❌ Bloqueio clássico: lateral fraco
-        if (
-            trend == "UPTREND"
-            and momentum != "BULLISH"
-            and market_state == "SIDEWAYS"
-            and volume < profile.min_volume_sideways
-        ):
-            return DynamicSelectionResult(
-                mode=mode,
-                approved=False,
-                reason="BLOCK_SIDEWAYS_WEAK",
-                min_score_required=profile.min_score_other,
-            )
-
-        # ❌ Bloqueio: momentum neutro fraco
+            
+                # ❌ Bloqueio: momentum neutro fraco
         if momentum == "NEUTRAL":
 
             # ======================================================

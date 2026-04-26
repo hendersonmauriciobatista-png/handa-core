@@ -635,6 +635,40 @@ class MarketRadarEngine:
                     },
                 )
 
+                # ======================================================
+                # 🔥 MCE V3.2 — BLOQUEIO DE MCE FRACO EM MERCADO CAUTELOSO
+                # ======================================================
+                selection_score = self._to_float(
+                    adjusted_item.get("selection_score", 0.0),
+                    default=0.0,
+                )
+
+                if (
+                    mqii_state == "CAUTIOUS"
+                    and final_score < 0.65
+                    and selection_score < 0.90
+                ):
+                    print(
+                        f"[MCE V3.2] {symbol} BLOQUEADO | "
+                        f"mce_weak=True | final_score={final_score:.2f} | "
+                        f"selection_score={selection_score:.2f} | "
+                        f"mqii={mqii_state}"
+                    )
+
+                    self._record_radar_non_execution(
+                        item=adjusted_item,
+                        reason="MCE_V3_WEAK_BLOCKED_CAUTION",
+                        summary="RADAR_MCE_WEAK_BLOCKED",
+                        market_context={
+                            "mqii_state": mqii_state,
+                            "liquidity_score": liquidity_score,
+                            "final_score": final_score,
+                            "selection_score": selection_score,
+                            "mce_weak": True,
+                        },
+                    )
+
+                    continue
 
                 # mercado forte → tolera mais
                 if mqii_state in ("TRADE_OK", "AGGRESSIVE_OK") and liquidity_score >= 0.6:

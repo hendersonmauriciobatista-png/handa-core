@@ -126,9 +126,10 @@ class MomentumConfirmationEngine:
                 print(f"[MCE] EXPIRADO: {symbol}")
                 continue
 
-            # ---------------------------
-            # CONFIRMAÇÃO
-            # ---------------------------
+            # ======================================================
+            # 🔥 MCE V3.1 — CONFIRMAÇÃO DE CONTINUIDADE
+            # ======================================================
+
             price_change = (
                 (price - candidate.reference_price)
                 / candidate.reference_price
@@ -140,8 +141,23 @@ class MomentumConfirmationEngine:
                 >= candidate.reference_volume_ratio * MCE_MIN_VOLUME_RETENTION
             )
 
+            # 🔥 NOVO: exigir retenção mínima de progresso (evita spike fake)
+            progress_ratio = price / candidate.reference_price if candidate.reference_price > 0 else 1.0
+
+            progress_ok = progress_ratio >= 1.001  # mínimo de continuidade real (~0.1%)
+
+            # 🔥 NOVO: impedir perda de força (volume caindo demais)
+            volume_drop = volume_ratio < (candidate.reference_volume_ratio * 0.7)
+
+            if volume_drop:
+                candidate.status = MCEStatus.CANCELLED
+                removed.append(symbol)
+                print(f"[MCE] CANCELADO VOLUME DROP: {symbol}")
+                continue
+
             if (
                 price_change >= MCE_MIN_PRICE_PROGRESS
+                and progress_ok
                 and volume_ok
                 and rsi <= MCE_MAX_RSI
                 and momentum in ["NEUTRAL", "BULLISH"]

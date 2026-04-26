@@ -602,6 +602,33 @@ class MarketRadarEngine:
             dynamic_min_final_score = self._get_dynamic_min_final_score()
             final_score = self._to_float(adjusted_item.get("score", 0.0), default=0.0)
 
+            # ======================================================
+            # 🔥 H&A PATCH — MCE V3 (CONFIRMAÇÃO DINÂMICA)
+            # ======================================================
+
+            mqii_state = self._safe_upper(self.market_quality.get("state"))
+            liquidity_score = self._to_float(self.market_liquidity.get("liquidity_score", 0.0))
+
+            if adjusted_item.get("mce_weak", False):
+
+                # mercado forte → tolera mais
+                if mqii_state in ("TRADE_OK", "AGGRESSIVE_OK") and liquidity_score >= 0.6:
+                    dynamic_min_final_score += 0.04
+
+            # mercado médio → exige mais confirmação
+            elif mqii_state in ("CAUTIOUS", "SIDEWAYS"):
+                  dynamic_min_final_score += 0.06
+
+            # mercado fraco → bloqueia mais forte
+            else:
+                dynamic_min_final_score += 0.08
+
+            print(
+                f"[MCE V3] {symbol} ajuste dinâmico | "
+                f"novo_min={dynamic_min_final_score:.2f} | "
+                f"mqii={mqii_state} | liq={liquidity_score:.2f}"
+            )
+
             if final_score < dynamic_min_final_score:
                 print(
                     f"[RADAR FILTER] {symbol} REJEITADO após penalty | "

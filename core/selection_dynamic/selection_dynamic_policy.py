@@ -103,26 +103,58 @@ class SelectionDynamicPolicy:
                 min_score_required=profile.min_score_other,
             )
 
-                # ❌ Bloqueio: momentum neutro fraco
+                    # ❌ Bloqueio clássico: lateral fraco
+        if (
+            trend == "UPTREND"
+            and momentum != "BULLISH"
+            and market_state == "SIDEWAYS"
+            and volume < profile.min_volume_sideways
+        ):
+            return DynamicSelectionResult(
+                mode=mode,
+                approved=False,
+                reason="BLOCK_SIDEWAYS_WEAK",
+                min_score_required=profile.min_score_other,
+            )
+
+        # ❌ Bloqueio: momentum neutro fraco
         if momentum == "NEUTRAL":
 
             # ======================================================
-            # 🔥 H&A PATCH — NEUTRAL PREMIUM SELECTION LIBERATION
+            # 🔥 H&A PATCH — NEUTRAL PREMIUM DINÂMICO
             # ======================================================
+
+            if avg_volume_ratio >= 1.5:
+                min_volume = 1.6
+            elif avg_volume_ratio >= 1.2:
+                min_volume = 1.4
+            else:
+                min_volume = 1.2
+
+            if approved_count >= 5:
+                min_score = 0.58
+            elif approved_count >= 3:
+                min_score = 0.60
+            else:
+                min_score = 0.62
+
+            min_rsi = 40.0
+            max_rsi = 62.0 if mqii_state == "CAUTIOUS" else 65.0
+
             neutral_premium = (
                 trend == "UPTREND"
                 and market_state in ("SIDEWAYS", "CAUTIOUS")
-                and volume >= 1.6
-                and 40.0 <= rsi <= 60.0
-                and final_score >= 0.60
+                and volume >= min_volume
+                and min_rsi <= rsi <= max_rsi
+                and final_score >= min_score
             )
 
             if neutral_premium:
                 return DynamicSelectionResult(
                     mode=mode,
                     approved=True,
-                    reason="NEUTRAL_PREMIUM_SELECTION_OK",
-                    min_score_required=0.62,
+                    reason="NEUTRAL_PREMIUM_DYNAMIC_OK",
+                    min_score_required=min_score,
                 )
 
             if not profile.allow_neutral_entries:

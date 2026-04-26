@@ -112,9 +112,9 @@ class SelectionDynamicPolicy:
             neutral_premium = (
                 trend == "UPTREND"
                 and market_state in ("SIDEWAYS", "CAUTIOUS")
-                and volume >= 2.5
-                and 40.0 <= rsi <= 58.0
-                and final_score >= 0.62
+                and volume >= 1.6
+                and 40.0 <= rsi <= 60.0
+                and final_score >= 0.60
             )
 
             if neutral_premium:

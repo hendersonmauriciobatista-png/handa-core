@@ -619,6 +619,23 @@ class MarketRadarEngine:
 
             if adjusted_item.get("mce_weak", False):
 
+                # ======================================================
+                # 🔥 ALO LEARNING — MCE V3 WEAK CONFIRMATION
+                # ======================================================
+                self._record_radar_non_execution(
+                    item=adjusted_item,
+                    reason="MCE_V3_WEAK_CONFIRMATION",
+                    summary="RADAR_MCE_WEAK",
+                    market_context={
+                        "mqii_state": mqii_state,
+                        "liquidity_score": liquidity_score,
+                        "final_score": final_score,
+                        "dynamic_min_score": dynamic_min_final_score,
+                        "mce_weak": True,
+                    },
+                )
+
+
                 # mercado forte → tolera mais
                 if mqii_state in ("TRADE_OK", "AGGRESSIVE_OK") and liquidity_score >= 0.6:
                     dynamic_min_final_score += 0.04

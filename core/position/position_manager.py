@@ -263,10 +263,10 @@ class PositionManager:
             return None
 
         # ========================================================
-        # 🔥 BREAK-EVEN MAIS INTELIGENTE
+        # 🔥 BREAK-EVEN AJUSTADO — DEIXAR LUCRO RESPIRAR
         # ========================================================
-        if pos.peak_pnl_pct >= 0.0025:  # +0.25%
-            if pnl_pct <= 0.0005:       # ~ +0.05%
+        if pos.peak_pnl_pct >= 0.0040:  # 🔥 antes 0.25 → agora 0.40%
+            if pnl_pct <= 0.0010:       # 🔥 antes 0.05 → agora 0.10%
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
 
 

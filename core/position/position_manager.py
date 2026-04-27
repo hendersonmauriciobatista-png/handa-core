@@ -395,11 +395,18 @@ class PositionManager:
                 return CloseReason.STOP_LOSS
 
         # =========================
-        # HARD STOP ABSOLUTO
-        # NÃO respeita hold mínimo
-        # Proteção máxima de capital
+        # HARD STOP INTELIGENTE — H&A PATCH
         # =========================
-        if pnl_pct <= -0.005:  # -0.5% máximo absoluto
+
+        max_loss_absolute = -0.005  # -0.5%
+
+        # 🔥 Se falha MUITO rápido → provavelmente erro de timing
+        if hold_seconds < 15:
+            if pnl_pct <= -0.0025:
+                return CloseReason.STOP_LOSS
+
+        # 🔥 Se já passou fase inicial → aplica limite completo
+        if pnl_pct <= max_loss_absolute:
             return CloseReason.STOP_LOSS
 
         if price > pos.peak_price:

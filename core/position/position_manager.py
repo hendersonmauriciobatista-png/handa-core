@@ -363,11 +363,19 @@ class PositionManager:
             fast_cut_1 = -0.0020
             fast_cut_2 = -0.0028
 
+        # ========================================================
+        # 🔥 FAST FAILURE CUT — AJUSTE H&A (RESPIRAÇÃO INICIAL)
+        # ========================================================
+
+        min_hold_before_cut = 10  # 🔥 NOVO: deixa o trade respirar
+
         if hold_seconds <= 20 and pnl_pct <= fast_cut_1:
-            return CloseReason.STOP_LOSS
+            if hold_seconds >= min_hold_before_cut:
+                return CloseReason.STOP_LOSS
 
         if hold_seconds <= 90 and pnl_pct <= fast_cut_2:
-            return CloseReason.STOP_LOSS
+            if hold_seconds >= min_hold_before_cut:
+                return CloseReason.STOP_LOSS
 
         # =========================
         # HARD STOP ABSOLUTO

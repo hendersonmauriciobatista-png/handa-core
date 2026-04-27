@@ -646,22 +646,32 @@ class MarketRadarEngine:
                     default=0.0,
                 )
 
-                if (
+                # ======================================================
+                # 🔥 MCE V3.2 — BLOQUEIO SUAVIZADO (H&A PATCH)
+                # ======================================================
+                selection_score = self._to_float(
+                    adjusted_item.get("selection_score", 0.0),
+                    default=0.0,
+                )
+
+                block_strong = (
                     mqii_state == "CAUTIOUS"
-                    and final_score < 0.65
-                    and selection_score < 0.90
-                ):
+                    and final_score < 0.45
+                    and selection_score < 0.70
+                )
+
+                if block_strong:
                     print(
-                        f"[MCE V3.2] {symbol} BLOQUEADO | "
-                        f"mce_weak=True | final_score={final_score:.2f} | "
+                        f"[MCE V3.2] {symbol} BLOQUEADO (SUAVE) | "
+                        f"final_score={final_score:.2f} | "
                         f"selection_score={selection_score:.2f} | "
                         f"mqii={mqii_state}"
                     )
 
                     self._record_radar_non_execution(
                         item=adjusted_item,
-                        reason="MCE_V3_WEAK_BLOCKED_CAUTION",
-                        summary="RADAR_MCE_WEAK_BLOCKED",
+                        reason="MCE_V3_SOFT_BLOCK",
+                        summary="RADAR_MCE_SOFT_BLOCK",
                         market_context={
                             "mqii_state": mqii_state,
                             "liquidity_score": liquidity_score,

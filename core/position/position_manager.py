@@ -263,10 +263,18 @@ class PositionManager:
             return None
 
         # ========================================================
-        # 🔥 BREAK-EVEN AJUSTADO — DEIXAR LUCRO RESPIRAR
+        # 🔥 BREAK-EVEN DINÂMICO — H&A (ANTI-RUÍDO + MAX PROFIT)
         # ========================================================
-        if pos.peak_pnl_pct >= 0.0040:  # 🔥 antes 0.25 → agora 0.40%
-            if pnl_pct <= 0.0010:       # 🔥 antes 0.05 → agora 0.10%
+        if pos.peak_pnl_pct >= 0.0070:  # trade forte
+            if pnl_pct <= pos.peak_pnl_pct * 0.60:
+                return CloseReason.DYNAMIC_PROFIT_PROTECTION
+
+        elif pos.peak_pnl_pct >= 0.0030:  # trade médio
+            if pnl_pct <= pos.peak_pnl_pct * 0.50:
+                return CloseReason.DYNAMIC_PROFIT_PROTECTION
+
+        elif pos.peak_pnl_pct >= 0.0015:  # trade fraco
+            if pnl_pct <= 0.0005:
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
 
 

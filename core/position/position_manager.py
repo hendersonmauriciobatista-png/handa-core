@@ -300,7 +300,15 @@ class PositionManager:
         # ========================================================
         # 🔥 STAGNATION ANTECIPADA (PATCH NOVO)
         # ========================================================
-        min_cycles_for_stagnation = max(MIN_HOLD_CYCLES + 10, 30)
+        # ========================================================
+        # 🔥 STAGNATION DINÂMICA — H&A PATCH
+        # ========================================================
+        if pos.peak_pnl_pct >= 0.0030:
+            min_cycles_for_stagnation = max(MIN_HOLD_CYCLES + 25, 55)
+        elif pnl_pct > -0.0015:
+            min_cycles_for_stagnation = max(MIN_HOLD_CYCLES + 20, 45)
+        else:
+            min_cycles_for_stagnation = max(MIN_HOLD_CYCLES + 10, 30)
 
         if pos.cycles_in_trade >= min_cycles_for_stagnation:
             is_stagnant_range = STAGNATION_MIN_PNL <= pnl_pct <= stagnation_max_pnl

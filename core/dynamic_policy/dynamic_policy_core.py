@@ -161,12 +161,12 @@ class DynamicPolicyCore:
                 sideways_min_rsi=50.0,
                 sideways_min_volume=1.20,
                 sideways_min_spread=0.0008,
-                min_rr=1.30,
+                min_rr=1.20,
                 expected_profit_pct=0.0045,
                 stop_loss_pct=0.0032,
-                capital_multiplier=0.45,
-                max_active_slots=1,
-                rejection_cooldown=3,
+                capital_multiplier=0.55,
+                max_active_slots=2,
+                rejection_cooldown=2,
             )
 
         # -----------------------------------------------------

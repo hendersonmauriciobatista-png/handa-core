@@ -219,6 +219,18 @@ class SelectionPolicyEngine:
         # FINAL DECISION
         # =========================
         market_context = token.get("market_context", {}) or {}
+
+        # 🔥 PROTEÇÃO CONTEXTUAL
+        if not market_context or market_context.get("approved_count", 0) == 0:
+            fallback_context = token.get("analysis", {}) or {}
+
+            market_context = {
+                "mqii_state": str(fallback_context.get("market_state", "CAUTIOUS")).upper(),
+                "liquidity_score": float(fallback_context.get("liquidity_score", 0.5) or 0.5),
+                "approved_count": int(fallback_context.get("approved_count", 1) or 1),
+                "uptrend_count": int(fallback_context.get("uptrend_count", 5) or 5),
+                "avg_volume_ratio": float(fallback_context.get("volume_ratio", 1.0) or 1.0),
+            }
         approved = self._check_min_score(final_score, data, market_context)
 
         decision = self._build_decision(

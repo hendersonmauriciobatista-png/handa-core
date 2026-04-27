@@ -154,7 +154,12 @@ class RiskManager:
         min_rr = float(min_rr)
         min_rr = max(1.05, min(min_rr, 2.50))
 
-        if rr < min_rr:
+        # ======================================================
+        # 🔥 RR TOLERANCE PATCH — H&A
+        # ======================================================
+        rr_tolerance = 0.10  # 🔥 tolerância institucional
+
+        if rr < (min_rr - rr_tolerance):
             return RiskEvaluation(
                 approved=False,
                 reason=f"RR ruim ({rr:.2f} < {min_rr:.2f})",
@@ -163,6 +168,7 @@ class RiskManager:
                 risk_reward_ratio=round(rr, 2),
                 expected_profit_pct=expected_profit_pct,
             )
+                
 
         logger.info(
             f"[Risk] ✅ {pair} | "

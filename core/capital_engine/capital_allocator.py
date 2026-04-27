@@ -16,8 +16,8 @@ class AllocationDecision:
 
 class CapitalAllocator:
 
-    TOTAL_SLOTS = 2
-    UTILIZATION_RATIO = 0.80
+    TOTAL_SLOTS = 4
+    UTILIZATION_RATIO = 0.60
 
     MIN_ADJUST = 0.85
     MAX_ADJUST = 1.15

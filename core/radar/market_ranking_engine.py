@@ -361,6 +361,9 @@ class MarketRankingEngine:
                         or weak_but_operable_context
                     )
 
+                    # ======================================================
+                    # 🔥 NO_UPTREND CONTROLADO — H&A PATCH
+                    # ======================================================
                     if neutral_trend_ok:
                         if strong_context:
                             score += 0.22
@@ -369,41 +372,42 @@ class MarketRankingEngine:
                         else:
                             score += 0.12
                     else:
-                        # ======================================================
-                        # 🔥 DYNAMIC CORE CHECK (ANTES DE REJEITAR)
-                        # ======================================================
-                        dynamic_allow = False
+                        # 🔥 NOVO: NÃO BLOQUEAR DIRETO
+                        weak_but_tradeable = (
+                            momentum == "BULLISH"
+                            and volume_ratio >= 0.70
+                            and 42 <= rsi <= 68
+                        )
 
-                        try:
-                            if hasattr(self, "dynamic_core_adapter") and hasattr(self, "dynamic_core_engine"):
-                                dynamic_input = self.dynamic_core_adapter.build_input(
-                                    snapshot=analysis,
-                                    profile=None,
-                                    system_ctx=None,
-                                    mqii_data=token.get("market_context"),
-                                )
+                        if weak_but_tradeable:
+                            score += 0.10
+                            print(f"[RANKING PATCH] {symbol} liberado (weak trend)")
+                        else:
+                            dynamic_allow = False
 
-                                dynamic_result = self.dynamic_core_engine.evaluate(dynamic_input)
-
-                                if dynamic_result.dynamic_mode in ("CAUTION", "TRADE_OK", "PREMIUM_OK"):
-                                    dynamic_allow = True
-                                    print(
-                                        f"[RADAR DYNAMIC] {symbol} LIBERADO | mode={dynamic_result.dynamic_mode} "
-                                        f"| score={dynamic_result.confidence_score:.4f}"
+                            try:
+                                if hasattr(self, "dynamic_core_adapter") and hasattr(self, "dynamic_core_engine"):
+                                    dynamic_input = self.dynamic_core_adapter.build_input(
+                                        snapshot=analysis,
+                                        profile=None,
+                                        system_ctx=None,
+                                        mqii_data=token.get("market_context"),
                                     )
 
-                        except Exception as e:
-                            print(f"[RADAR DYNAMIC ERROR] {symbol} erro={e}")
+                                    dynamic_result = self.dynamic_core_engine.evaluate(dynamic_input)
 
-                        if not dynamic_allow:
-                            self._radar_summary_local["NO_UPTREND"] += 1
+                                    if dynamic_result.dynamic_mode in ("CAUTION", "TRADE_OK", "PREMIUM_OK"):
+                                        dynamic_allow = True
+                                        print(
+                                            f"[RADAR DYNAMIC] {symbol} LIBERADO | mode={dynamic_result.dynamic_mode}"
+                                        )
+                            except Exception as e:
+                                print(f"[RADAR DYNAMIC ERROR] {symbol} erro={e}")
 
-                            self._log_non_execution(
-                                token,
-                                "NO_UPTREND",
-                                "TREND_INVALID",
-                            )
-                            continue
+                            if not dynamic_allow:
+                                # 🔥 REDUÇÃO DE BLOQUEIO — NÃO CONTINUA DIRETO
+                                self._radar_summary_local["NO_UPTREND"] += 1
+                                score += 0.05  # penaliza, mas não mata
 
                 # ------------------------------------------------
                 # MOMENTUM

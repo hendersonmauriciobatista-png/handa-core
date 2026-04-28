@@ -187,13 +187,28 @@ class DecisionEngine:
                 return None
 
             # ======================================================
-            # 🔥 DRC V1 — BLOQUEIO PÓS LUCRO FORTE
+            # 🔥 DRC V2 — REENTRADA PÓS-LUCRO CONTROLADA
             # ======================================================
             last_was_loss = getattr(self, "last_trade_was_loss", False)
 
             if last_was_loss is False:
-                logger.info(f"[DRC V1] BLOQUEADO PÓS LUCRO: {pair}")
-                return None
+                post_profit_reentry_allowed = (
+                    float(snapshot.ema_fast) > float(snapshot.ema_slow)
+                    and float(snapshot.volume_ratio) >= 2.0
+                    and 50 <= float(snapshot.rsi) <= 64
+                )
+
+                if not post_profit_reentry_allowed:
+                    logger.info(
+                        f"[DRC V2] BLOQUEADO PÓS-LUCRO: {pair} | "
+                        f"vol={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f}"
+                    )
+                    return None
+
+                logger.info(
+                    f"[DRC V2] REENTRADA PÓS-LUCRO PERMITIDA: {pair} | "
+                    f"vol={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f}"
+                )
 
 
 

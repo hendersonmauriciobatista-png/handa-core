@@ -9,6 +9,7 @@ from core.lc1.lc1_logger import LC1Logger
 from typing import List
 from core.dynamic_policy.lc1e_feedback_adapter import LC1EFeedbackAdapter
 from core.selection_dynamic.selection_dynamic_policy import SelectionDynamicPolicy
+
 # =============================================================================
 # DATA STRUCTURES
 # =============================================================================
@@ -214,7 +215,6 @@ class SelectionPolicyEngine:
             except Exception as e:
                 print(f"[ALO SCORE ERROR] {data.symbol} | erro={e}")
 
-
         # =========================
         # FINAL DECISION
         # =========================
@@ -225,13 +225,55 @@ class SelectionPolicyEngine:
             fallback_context = token.get("analysis", {}) or {}
 
             market_context = {
-                "mqii_state": str(fallback_context.get("market_state", "CAUTIOUS")).upper(),
-                "liquidity_score": float(fallback_context.get("liquidity_score", 0.5) or 0.5),
+                "mqii_state": str(
+                    fallback_context.get("market_state", "CAUTIOUS")
+                ).upper(),
+                "liquidity_score": float(
+                    fallback_context.get("liquidity_score", 0.5) or 0.5
+                ),
                 "approved_count": int(fallback_context.get("approved_count", 1) or 1),
                 "uptrend_count": int(fallback_context.get("uptrend_count", 5) or 5),
-                "avg_volume_ratio": float(fallback_context.get("volume_ratio", 1.0) or 1.0),
+                "avg_volume_ratio": float(
+                    fallback_context.get("volume_ratio", 1.0) or 1.0
+                ),
             }
-        approved = self._check_min_score(final_score, data, market_context)
+
+        # ========================================================
+        # 🔥 EXCEÇÃO PREMIUM (CONTROLADA)
+        # ========================================================
+        premium_override = False
+
+        try:
+            trend = str(data.trend).upper()
+            momentum = str(data.momentum).upper()
+            state = str(data.market_state).upper()
+            volume = float(data.volume_ratio)
+            score = float(final_score)
+
+            if (
+                trend == "UPTREND"
+                and state == "SIDEWAYS"
+                and momentum == "NEUTRAL"
+                and volume >= 1.2
+                and score >= 0.80
+            ):
+                premium_override = True
+
+                print(
+                    f"[PREMIUM OVERRIDE] {data.symbol} | "
+                    f"score={score:.4f} | trend={trend} | "
+                    f"momentum={momentum} | state={state} | vol={volume:.2f}"
+                )
+
+        except Exception as e:
+            print(f"[PREMIUM OVERRIDE ERROR] {data.symbol} | erro={e}")
+
+        # ========================================================
+        # DECISÃO FINAL
+        # ========================================================
+        approved = premium_override or self._check_min_score(
+            final_score, data, market_context
+        )
 
         decision = self._build_decision(
             data=data,
@@ -711,7 +753,9 @@ class SelectionPolicyEngine:
             "liquidity_score": float(market_context.get("liquidity_score", 0.0) or 0.0),
             "approved_count": int(market_context.get("approved_count", 0) or 0),
             "uptrend_count": int(market_context.get("uptrend_count", 0) or 0),
-            "avg_volume_ratio": float(market_context.get("avg_volume_ratio", 0.0) or 0.0),
+            "avg_volume_ratio": float(
+                market_context.get("avg_volume_ratio", 0.0) or 0.0
+            ),
         }
 
         result = self.dynamic_policy.evaluate(

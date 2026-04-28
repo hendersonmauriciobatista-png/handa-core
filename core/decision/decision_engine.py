@@ -139,7 +139,20 @@ class DecisionEngine:
 
         pair = str(snapshot.pair).strip().upper()
 
-        
+        # ======================================================
+        # 🔥 GLOBAL ENTRY COOLDOWN (ANTI-OVERTRADING)
+        # ======================================================
+        cooldown_global_seconds = 90  # 1.5 minuto (ajustável)
+
+        last_time = getattr(self, "last_trade_time", 0)
+        now = datetime.utcnow().timestamp()
+
+        if now - last_time < cooldown_global_seconds:
+            logger.info(
+                f"[GLOBAL COOLDOWN] {pair} bloqueado | "
+                f"aguardando {(cooldown_global_seconds - (now - last_time)):.1f}s"
+            )
+            return None
 
         if not pair:
             logger.warning("[Engine] Pair inválido")

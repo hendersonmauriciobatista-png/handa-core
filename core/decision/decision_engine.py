@@ -173,6 +173,16 @@ class DecisionEngine:
                 logger.info(f"[DRC] BLOQUEADO POR COOLDOWN: {pair}")
                 return None
 
+            # ======================================================
+            # 🔥 DRC V1 — BLOQUEIO PÓS LUCRO FORTE
+            # ======================================================
+            last_was_loss = getattr(self, "last_trade_was_loss", False)
+
+            if last_was_loss is False:
+                logger.info(f"[DRC V1] BLOQUEADO PÓS LUCRO: {pair}")
+                return None
+
+
 
             recent_loss = getattr(self, "last_trade_was_loss", False)
 

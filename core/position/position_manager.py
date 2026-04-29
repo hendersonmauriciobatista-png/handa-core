@@ -18,6 +18,7 @@ from core.lc1.lc1_logger import LC1Logger
 
 logger = logging.getLogger(__name__)
 
+
 def get_pnl_emoji(pnl: float) -> str:
     if pnl > 0:
         return "🟢"
@@ -53,6 +54,7 @@ def format_sell_telegram(
         f"{emoji} {pnl:+.2f} USDC ({pct:+.2f}%)\n"
         f"{reason} | {duration}"
     )
+
 
 class PositionStatus(Enum):
     OPEN = "OPEN"
@@ -109,6 +111,9 @@ class Position:
     cycles_in_trade: int = 0
     peak_pnl_pct: float = 0.0
 
+    is_premium_override: bool = False
+    entry_source: str = "H&A_SIGNAL"
+
 
 class PositionManager:
 
@@ -117,7 +122,6 @@ class PositionManager:
         self._history: List[Position] = []
         self._snapshot_buffer: List[dict] = []
         self._snapshot_buffer_size = 50
-
 
         self.penalty_map: Dict[str, int] = {}
         self.last_traded_symbol: Optional[str] = None
@@ -164,6 +168,8 @@ class PositionManager:
         take_profit=None,
         quantity=None,
         symbol=None,
+        is_premium_override=False,
+        entry_source="H&A_SIGNAL",
     ):
 
         symbol_name = self._normalize_symbol(pair, symbol)
@@ -195,6 +201,8 @@ class PositionManager:
             capital_invested=capital_invested,
             quantity=quantity,
             fees_paid=fee_entry,
+            is_premium_override=bool(is_premium_override),
+            entry_source=str(entry_source or "H&A_SIGNAL"),
         )
 
         self._positions[symbol_name] = pos
@@ -212,7 +220,7 @@ class PositionManager:
                 "source": "PositionManager",
             }
         )
-        
+
         buy_msg = (
             f"BUY | {symbol_name}\n"
             f"ENTRY | {entry_price:.8f}\n"
@@ -224,7 +232,7 @@ class PositionManager:
             print(f"[TELEGRAM BUY ENVIADO] {symbol_name}")
         except Exception as e:
             logger.warning("[TELEGRAM] Falha ao enviar BUY: %s", e)
-       
+
         return pos
 
     # ========================================================
@@ -234,12 +242,30 @@ class PositionManager:
     def _evaluate_dynamic_exit(self, pos: Position, price: float):
 
         pnl_pct = (price - pos.entry_price) / pos.entry_price
-        
 
         if pnl_pct > pos.peak_pnl_pct:
             pos.peak_pnl_pct = pnl_pct
 
         giveback = pos.peak_pnl_pct - pnl_pct
+
+        # ========================================================
+        # 🔥 MPP-P — MICRO PROFIT PROTECTION (PREMIUM ONLY)
+        # ========================================================
+        try:
+            if getattr(pos, "is_premium_override", False):
+
+                # lucro mínimo atingido
+                if pos.peak_pnl_pct >= 0.0035:  # ~0.35%
+
+                    # perdeu força (começou a devolver)
+                    if pnl_pct <= pos.peak_pnl_pct * 0.60:
+
+                        # evita sair cedo demais
+                        if pos.cycles_in_trade >= MIN_HOLD_CYCLES:
+                            return CloseReason.DYNAMIC_PROFIT_PROTECTION
+
+        except Exception as e:
+            print(f"[MPP-P ERROR] {pos.symbol} | erro={e}")
 
         # =========================
         # HARD EXIT (INTELIGENTE)
@@ -278,7 +304,6 @@ class PositionManager:
             if pnl_pct <= 0.0005:
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
 
-
         # =========================
         # PROTEÇÃO DE LUCRO
         # =========================
@@ -295,10 +320,9 @@ class PositionManager:
                 and giveback >= PROFIT_GIVEBACK_LEVEL_2
             ):
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
-  
+
             if giveback >= PROFIT_GIVEBACK_LEVEL_1 * 1.5:
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
-
 
         # =========================
         # STAGNATION
@@ -358,8 +382,6 @@ class PositionManager:
         # CÁLCULO DE PNL
         # =========================
         pnl_pct = (price - pos.entry_price) / pos.entry_price
-
-        
 
         # =========================
         # FAST FAILURE CUT
@@ -504,9 +526,7 @@ class PositionManager:
         pos.close_reason = reason
         pos.closed_at = datetime.utcnow()
 
-        duration_seconds = int(
-            (pos.closed_at - pos.opened_at).total_seconds()
-        )
+        duration_seconds = int((pos.closed_at - pos.opened_at).total_seconds())
 
         pos.status = PositionStatus.CLOSED
         self._history.append(pos)
@@ -568,9 +588,8 @@ class PositionManager:
             duration=duration_str,
         )
 
-
         try:
-                    
+
             self.notifier.send(sell_msg)
         except Exception as e:
             logger.warning("[TELEGRAM] Falha ao enviar notificação: %s", e)
@@ -600,7 +619,6 @@ class PositionManager:
     def get_history(self):
         return list(self._history)
 
-    
     def get_performance_metrics(self):
         history = list(self._history)
 
@@ -611,17 +629,9 @@ class PositionManager:
 
         pnl_total = sum(float(pos.net_pnl_usdc) for pos in history)
 
-        pnl_avg = (
-            pnl_total / total_trades
-            if total_trades > 0
-            else 0.0
-        )
+        pnl_avg = pnl_total / total_trades if total_trades > 0 else 0.0
 
-        win_rate = (
-            (wins / total_trades) * 100
-            if total_trades > 0
-            else 0.0
-        )
+        win_rate = (wins / total_trades) * 100 if total_trades > 0 else 0.0
 
         best_trade = max(
             (float(pos.net_pnl_usdc) for pos in history),
@@ -647,7 +657,7 @@ class PositionManager:
             "penalized_symbols": len([v for v in self.penalty_map.values() if v > 0]),
             "last_traded_symbol": self.last_traded_symbol,
         }
-        
+
     def get_performance_summary_text(self):
         metrics = self.get_performance_metrics()
 
@@ -665,7 +675,7 @@ class PositionManager:
             f"open_positions={metrics['open_positions']} | "
             f"penalized_symbols={metrics['penalized_symbols']} | "
             f"last_symbol={metrics['last_traded_symbol']}"
-        )   
+        )
 
     def get_health_check(self) -> dict:
         try:
@@ -832,7 +842,6 @@ class PositionManager:
 
     def get_snapshot_buffer(self):
         return list(self._snapshot_buffer)
-
 
     def get_penalty_map(self):
         return dict(self.penalty_map)

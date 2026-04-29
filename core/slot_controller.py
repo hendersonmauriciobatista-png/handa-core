@@ -19,6 +19,7 @@ from core.decision.decision_engine import MarketSnapshot
 from core.learning.adaptive_learning_observer import AdaptiveLearningObserver
 from core.notifications.telegram_notifier import TelegramNotifier
 
+
 class SlotController:
 
     def __init__(
@@ -84,7 +85,6 @@ class SlotController:
         self.drc_exhaustion_cooldown = 20 * 60
         self.drc_good_profit_cooldown = 12 * 60
 
-
         # BLOQUEIO CURTO ENTRE CICLOS (NEGATIVA / FALHA DE BUY)
         self.rejected_symbols_cooldown = {}
 
@@ -110,8 +110,7 @@ class SlotController:
         self.notifier = TelegramNotifier(
             token="8696491310:AAF1czFwV394JaF4ur8sYxnUIlk5Irh3hWs",
             chat_id="7975792456",
-)
-
+        )
 
     # ========================================================
     # POSIÇÕES ATIVAS / CONTEXTO DINÂMICO
@@ -325,13 +324,10 @@ class SlotController:
         release_ts = self._now_ts() + cooldown_seconds
         self.pair_cooldowns[symbol] = release_ts
 
-        
-
         print(
             f"[COOLDOWN] {symbol} BLOQUEADO | "
             f"loss_streak={streak} | "
             f"cooldown={cooldown_seconds}s | "
-            
         )
 
         # ==========================================
@@ -481,7 +477,6 @@ class SlotController:
                 f"cooldown={self.drc_good_profit_cooldown}s"
             )
             return
-
 
     def _is_pair_blocked(self, symbol: str) -> bool:
         symbol = self._normalize_symbol(symbol)
@@ -794,9 +789,11 @@ class SlotController:
         attempted_symbols = set()
         approved_candidates = []
 
-        print("[SLOT DEBUG] slots:", {sid: slot.state for sid, slot in self._slots.items()})
+        print(
+            "[SLOT DEBUG] slots:",
+            {sid: slot.state for sid, slot in self._slots.items()},
+        )
         print("[SLOT DEBUG] approved_candidates:", approved_candidates)
-
 
         # ==========================================================
         # 2.1 MQII GATE
@@ -827,7 +824,6 @@ class SlotController:
                 if symbol in attempted_symbols:
                     continue
 
-                
                 snapshot = self._build_snapshot_from_opportunity(opportunity)
 
                 if snapshot is None:
@@ -848,18 +844,24 @@ class SlotController:
                         from core.alo import AloVisionEngine
 
                         if not hasattr(self, "_alo_vision"):
-                           self._alo_vision = AloVisionEngine()
+                            self._alo_vision = AloVisionEngine()
 
                         # usa snapshot já existente
                         vision = self._alo_vision.analyze(
                             snapshot=snapshot,
-                            liquidity_data=getattr(self.market_radar, "market_liquidity", None),
+                            liquidity_data=getattr(
+                                self.market_radar, "market_liquidity", None
+                            ),
                         )
 
                         # ======================================================
                         # PROTEÇÃO — VISÃO INVÁLIDA
                         # ======================================================
-                        if not vision or not hasattr(vision, "inference") or not vision.inference:
+                        if (
+                            not vision
+                            or not hasattr(vision, "inference")
+                            or not vision.inference
+                        ):
                             print(f"[ALO GATE] visão inválida para {symbol}")
                             signal = None
                             self._block_rejected_symbol(symbol, cycles=1)
@@ -873,7 +875,9 @@ class SlotController:
                         # ======================================================
                         selection_score = 0.0
                         try:
-                            selection_score = float(opportunity.get("selection_score", 0.0))
+                            selection_score = float(
+                                opportunity.get("selection_score", 0.0)
+                            )
                         except Exception:
                             selection_score = 0.0
 
@@ -906,7 +910,7 @@ class SlotController:
                         try:
                             if self.market_radar:
                                 mqii = getattr(
-                                   self.market_radar, "market_quality", None
+                                    self.market_radar, "market_quality", None
                                 )
                                 if mqii:
                                     mqii_state = (
@@ -924,8 +928,8 @@ class SlotController:
                         ):
 
                             print(
-                               f"[ALO GATE] BLOQUEADO NO CICLO {symbol} | "
-                               f"guide={guide} | conf={confidence} | mqii={mqii_state}"
+                                f"[ALO GATE] BLOQUEADO NO CICLO {symbol} | "
+                                f"guide={guide} | conf={confidence} | mqii={mqii_state}"
                             )
 
                             signal = None
@@ -934,7 +938,6 @@ class SlotController:
                     print(f"[ALO GATE ERROR] {e}")
                     signal = None
                     self._block_rejected_symbol(symbol, cycles=1)
-
 
                 # ==========================================================
                 # BLOQUEIOS APÓS VALIDAÇÃO (ICfactory)
@@ -945,7 +948,9 @@ class SlotController:
                         signal = None
 
                     elif self._is_rejected_symbol_blocked(symbol):
-                        print(f"[POST-CHECK BLOCK] {symbol} bloqueado por rejection cooldown")
+                        print(
+                            f"[POST-CHECK BLOCK] {symbol} bloqueado por rejection cooldown"
+                        )
                         signal = None
 
                 # ==========================================================
@@ -962,11 +967,15 @@ class SlotController:
                         )
 
                         if not hasattr(self, "_alo_intelligent"):
-                            self._alo_intelligent = ALOIntelligentCore(mode=ALOMode.ADVISORY)
+                            self._alo_intelligent = ALOIntelligentCore(
+                                mode=ALOMode.ADVISORY
+                            )
 
                         snapshot_obj = opportunity.get("snapshot")
                         analysis_data = opportunity.get("analysis", {}) or {}
-                        market_context_data = opportunity.get("market_context", {}) or {}
+                        market_context_data = (
+                            opportunity.get("market_context", {}) or {}
+                        )
 
                         technical = TechnicalContext(
                             price=float(getattr(snapshot_obj, "price", 0.0)),
@@ -974,11 +983,15 @@ class SlotController:
                             ema_fast=float(getattr(snapshot_obj, "ema_10", 0.0)),
                             ema_slow=float(getattr(snapshot_obj, "ema_20", 0.0)),
                             ema_trend=float(getattr(snapshot_obj, "ema_50", 0.0)),
-                            volume_ratio=float(getattr(snapshot_obj, "volume_ratio", 1.0)),
+                            volume_ratio=float(
+                                getattr(snapshot_obj, "volume_ratio", 1.0)
+                            ),
                             trend=str(analysis_data.get("trend", "")),
                             momentum=str(analysis_data.get("momentum", "")),
                             market_state=str(analysis_data.get("market_state", "")),
-                            selection_score=float(opportunity.get("selection_score", 0.0)),
+                            selection_score=float(
+                                opportunity.get("selection_score", 0.0)
+                            ),
                             market_score=float(opportunity.get("score", 0.0)),
                             base_score=float(opportunity.get("base_score", 0.0)),
                             penalty=float(opportunity.get("penalty", 0.0)),
@@ -987,33 +1000,47 @@ class SlotController:
                         macro = MacroMarketContext(
                             liquidity_score=float(
                                 getattr(
-                                    getattr(self.market_radar, "market_liquidity", {}) or {},
+                                    getattr(self.market_radar, "market_liquidity", {})
+                                    or {},
                                     "get",
                                     lambda *_: 0.5,
                                 )("liquidity_score", 0.5)
                             ),
                             liquidity_label=str(
                                 getattr(
-                                    getattr(self.market_radar, "market_liquidity", {}) or {},
+                                    getattr(self.market_radar, "market_liquidity", {})
+                                    or {},
                                     "get",
                                     lambda *_: "UNKNOWN",
                                 )("liquidity_label", "UNKNOWN")
                             ),
                             liquidity_message=str(
                                 getattr(
-                                    getattr(self.market_radar, "market_liquidity", {}) or {},
+                                    getattr(self.market_radar, "market_liquidity", {})
+                                    or {},
                                     "get",
                                     lambda *_: "",
                                 )("liquidity_message", "")
                             ),
-                            avg_volume_ratio=float(market_context_data.get("avg_volume_ratio", 1.0)),
-                            uptrend_count=int(market_context_data.get("uptrend_count", 0)),
-                            refined_count=int(market_context_data.get("refined_count", 0)),
-                            approved_count=int(market_context_data.get("approved_count", 0)),
-                            total_assets=int(market_context_data.get("total_assets", 40)),
+                            avg_volume_ratio=float(
+                                market_context_data.get("avg_volume_ratio", 1.0)
+                            ),
+                            uptrend_count=int(
+                                market_context_data.get("uptrend_count", 0)
+                            ),
+                            refined_count=int(
+                                market_context_data.get("refined_count", 0)
+                            ),
+                            approved_count=int(
+                                market_context_data.get("approved_count", 0)
+                            ),
+                            total_assets=int(
+                                market_context_data.get("total_assets", 40)
+                            ),
                             market_regime_internal=str(
                                 getattr(
-                                    getattr(self.market_radar, "market_quality", {}) or {},
+                                    getattr(self.market_radar, "market_quality", {})
+                                    or {},
                                     "get",
                                     lambda *_: "",
                                 )("state", "")
@@ -1039,8 +1066,13 @@ class SlotController:
                             signal = None
                             self._block_rejected_symbol(symbol, cycles=2)
 
-                        elif guidance.guidance == GuidanceType.REQUIRE_STRONGER_CONFIRMATION:
-                            selection_score = float(opportunity.get("selection_score", 0.0))
+                        elif (
+                            guidance.guidance
+                            == GuidanceType.REQUIRE_STRONGER_CONFIRMATION
+                        ):
+                            selection_score = float(
+                                opportunity.get("selection_score", 0.0)
+                            )
 
                             if selection_score < 0.85:
                                 print(
@@ -1054,14 +1086,13 @@ class SlotController:
                     except Exception as e:
                         print(f"[ALO INTEL GATE ERROR] {symbol} | erro={e}")
 
-                
                     attempted_symbols.add(symbol)
 
                 if signal:
                     print(f"[SLOT DEBUG] CANDIDATO APROVADO: {symbol}")
                     approved_candidates.append((symbol, signal))
                 else:
-                    
+
                     try:
                         if self.lc1_adapter and hasattr(
                             self.lc1_adapter, "build_event"
@@ -1201,7 +1232,6 @@ class SlotController:
                     continue
 
                 symbol, signal = approved_candidates[candidate_index]
-                
 
                 slot.pair = symbol
                 slot.pending_buy_signal = signal
@@ -1210,7 +1240,7 @@ class SlotController:
                 self._unblock_rejected_symbol(symbol)
 
                 print(f"[SLOT {slot.slot_id}] BUY APROVADO (GLOBAL): {symbol}")
-                
+
                 candidate_index += 1
             # -------------------------------
             # PROCESSAMENTO NORMAL
@@ -1368,6 +1398,21 @@ class SlotController:
                 slot.reset()
                 return
 
+            # ========================================================
+            # 🔥 LIMITADOR DE ENTRADAS SIMULTÂNEAS
+            # ========================================================
+            MAX_CONCURRENT_TRADES = 1
+
+            active_trades = sum(1 for s in self._slots.values() if s.state == "RUNNING")
+
+            if active_trades >= MAX_CONCURRENT_TRADES:
+                print(
+                    f"[RISK LIMIT] BLOQUEADO | active_trades={active_trades} | "
+                    f"tentando_entrar={signal.pair}"
+                )
+                slot.pending_buy_signal = None
+                slot.reset()
+                return
 
             print(
                 f"[SLOT {slot.slot_id}] EXECUTING BUY {signal.pair} "
@@ -1552,18 +1597,17 @@ class SlotController:
             )
 
             try:
-               emoji = "🟢" if result.net_pnl_usdc >= 0 else "🔴"
-               self.notifier.send(
-                   f"{emoji} SELL EXECUTADO\n"
-                   f"Par: {result.pair}\n"
-                   f"Entrada: {result.entry_price:.8f}\n"
-                   f"Saída: {result.exit_price:.8f}\n"
-                   f"Resultado: {result.net_pnl_usdc:.4f} USDC\n"
-                   f"Motivo: {reason}"
+                emoji = "🟢" if result.net_pnl_usdc >= 0 else "🔴"
+                self.notifier.send(
+                    f"{emoji} SELL EXECUTADO\n"
+                    f"Par: {result.pair}\n"
+                    f"Entrada: {result.entry_price:.8f}\n"
+                    f"Saída: {result.exit_price:.8f}\n"
+                    f"Resultado: {result.net_pnl_usdc:.4f} USDC\n"
+                    f"Motivo: {reason}"
                 )
             except Exception as e:
                 print(f"[TELEGRAM SELL ERROR] {e}")
-
 
             slot.pending_buy_signal = None
             slot._state = "DONE"

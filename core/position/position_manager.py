@@ -267,6 +267,24 @@ class PositionManager:
         except Exception as e:
             print(f"[MPP-P ERROR] {pos.symbol} | erro={e}")
 
+        # ========================================================
+        # 🔥 MPP-N — MICRO PROFIT PROTECTION (NORMAL STRONG SETUPS)
+        # ========================================================
+        try:
+            if not getattr(pos, "is_premium_override", False):
+
+                # Setup normal que já mostrou lucro inicial relevante
+                if pos.peak_pnl_pct >= 0.0025:  # ~0.25%
+
+                    # Protege antes de virar negativo
+                    if pnl_pct > 0 and pnl_pct <= pos.peak_pnl_pct * 0.45:
+
+                        if pos.cycles_in_trade >= MIN_HOLD_CYCLES:
+                            return CloseReason.DYNAMIC_PROFIT_PROTECTION
+
+        except Exception as e:
+            print(f"[MPP-N ERROR] {pos.symbol} | erro={e}")
+
         # =========================
         # HARD EXIT (INTELIGENTE)
         # =========================

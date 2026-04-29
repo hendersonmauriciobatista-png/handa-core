@@ -9,11 +9,10 @@ import os
 import subprocess
 from datetime import datetime
 
+
 def format_buy_telegram(pair: str, entry: float, capital: float) -> str:
-    return (
-        f"BUY | {pair}\n"
-        f"{entry:.8f} | {capital:.2f} USDC"
-    )
+    return f"BUY | {pair}\n" f"{entry:.8f} | {capital:.2f} USDC"
+
 
 class MockExecutor:
     """
@@ -37,20 +36,19 @@ class MockExecutor:
 
         self.initial_balance = float(initial_balance)
         self.state_file = "storage/mock_state.json"
-  
-        self.git_persist_enabled = True
-        self.git_state_commit_message = "chore: update mock state"  
 
+        self.git_persist_enabled = True
+        self.git_state_commit_message = "chore: update mock state"
 
         self.notifier = notifier
 
         if self.notifier is None and self.position_manager is not None:
             self.notifier = getattr(self.position_manager, "notifier", None)
 
-        self._load_state()
-
         # pair -> dict com dados da posição
         self.positions = {}
+
+        self._load_state()
 
         print("MockExecutor iniciado")
 
@@ -161,8 +159,8 @@ class MockExecutor:
             print(f"[BUY NOTIFIER DEBUG] msg={msg}")
 
             try:
-               self.notifier.send(msg)
-               print("[BUY NOTIFIER DEBUG] send_called")
+                self.notifier.send(msg)
+                print("[BUY NOTIFIER DEBUG] send_called")
             except Exception as e:
                 print(f"[BUY NOTIFIER ERROR] {e}")
         else:
@@ -246,6 +244,8 @@ class MockExecutor:
                     data.get("initial_balance", self.initial_balance)
                 )
 
+                self.positions = data.get("positions", {}) or {}
+
                 print(f"[MOCK STATE] carregado | balance={self.balance_usdc:.4f}")
             else:
                 print("[MOCK STATE] nenhum estado encontrado — criando novo")
@@ -291,7 +291,6 @@ class MockExecutor:
         except Exception as e:
             print(f"[MOCK STATE GIT ERROR] {e}")
 
-
     def _save_state(self):
         try:
             os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
@@ -306,6 +305,7 @@ class MockExecutor:
             data = {
                 "initial_balance": self.initial_balance,
                 "current_balance": self.balance_usdc,
+                "positions": self.positions,
                 "pnl_total": round(pnl_total, 6),
                 "pnl_pct": round(pnl_pct, 4),
                 "last_update": datetime.utcnow().isoformat(),

@@ -51,6 +51,8 @@ class MockExecutor:
         # pair -> dict com dados da posição
         self.positions = {}
 
+        self._pull_state_from_git()
+
         self._load_state()
 
         print("MockExecutor iniciado")
@@ -234,6 +236,26 @@ class MockExecutor:
     # =================================================
     # STATE PERSISTENCE
     # =================================================
+
+    def _pull_state_from_git(self):
+        try:
+            state_path = self.state_file.replace("\\", "/")
+
+            subprocess.run(
+                ["git", "pull"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            if os.path.exists(self.state_file):
+                print(f"[MOCK STATE] atualizado via Git | file={state_path}")
+            else:
+                print("[MOCK STATE] Git pull executado, mas arquivo não encontrado")
+
+        except Exception as e:
+            print(f"[MOCK STATE GIT PULL ERROR] {e}")
+
     def _load_state(self):
         try:
             if os.path.exists(self.state_file):

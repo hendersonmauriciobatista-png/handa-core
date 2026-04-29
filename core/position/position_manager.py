@@ -440,9 +440,23 @@ class PositionManager:
 
         max_loss_absolute = -0.005  # -0.5%
 
-        # 🔥 Se falha MUITO rápido → provavelmente erro de timing
-        if hold_seconds < 15:
-            if pnl_pct <= -0.0025:
+        # ========================================================
+        # 🔥 EARLY STOP DINÂMICO — H&A PATCH
+        # ========================================================
+        # Antes: podia stopar em poucos segundos.
+        # Agora: só corta antes de 15s se for perda emergencial.
+        # Perdas normais precisam de tempo mínimo de confirmação.
+        # ========================================================
+
+        emergency_loss = -0.0045  # -0.45%
+        early_confirmed_loss = -0.0028  # -0.28%
+
+        if hold_seconds < 10:
+            if pnl_pct <= emergency_loss:
+                return CloseReason.STOP_LOSS
+
+        elif hold_seconds < 15:
+            if pnl_pct <= early_confirmed_loss:
                 return CloseReason.STOP_LOSS
 
         # 🔥 Se já passou fase inicial → aplica limite completo

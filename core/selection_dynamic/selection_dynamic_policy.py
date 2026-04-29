@@ -21,7 +21,9 @@ class SelectionDynamicPolicy:
         self.mapper = MarketRegimeMapper()
         self.thresholds = DynamicThresholdProvider()
 
-    def evaluate(self, data, final_score: float, market_context: dict) -> DynamicSelectionResult:
+    def evaluate(
+        self, data, final_score: float, market_context: dict
+    ) -> DynamicSelectionResult:
         """
         data = SelectionInput
         final_score = score calculado pelo SelectionPolicyEngine
@@ -81,7 +83,9 @@ class SelectionDynamicPolicy:
             return DynamicSelectionResult(
                 mode=mode,
                 approved=approved,
-                reason="TREND_CONTEXT_ENTRY_OK" if approved else "TREND_CONTEXT_SCORE_LOW",
+                reason=(
+                    "TREND_CONTEXT_ENTRY_OK" if approved else "TREND_CONTEXT_SCORE_LOW"
+                ),
                 min_score_required=min_score,
             )
 
@@ -107,14 +111,62 @@ class SelectionDynamicPolicy:
             and volume < profile.min_volume_sideways
             and not sideways_weak_override
         ):
+            # ======================================================
+            # H&A PATCH — SIDEWAYS WEAK DYNAMIC GATE v1
+            # ======================================================
+            # Antes: SIDEWAYS fraco virava bloqueio absoluto com
+            # min_score_other, que podia exigir 0.95 e travar setups
+            # operáveis.
+            #
+            # Agora: vira gate dinâmico contextual.
+            # Mercado forte exige menos; mercado fraco exige mais.
+            # ======================================================
+
+            contextual_min_score = 0.72
+
+            if mqii_state == "TRADE_OK":
+                contextual_min_score -= 0.05
+
+            elif mqii_state in ("NO_TRADE", "DEFENSIVE"):
+                contextual_min_score += 0.08
+
+            if avg_volume_ratio >= 1.30:
+                contextual_min_score -= 0.03
+
+            elif avg_volume_ratio < 0.90:
+                contextual_min_score += 0.05
+
+            if approved_count >= 3:
+                contextual_min_score -= 0.03
+
+            elif approved_count == 0:
+                contextual_min_score += 0.05
+
+            if uptrend_count >= 15:
+                contextual_min_score -= 0.02
+
+            elif uptrend_count < 8:
+                contextual_min_score += 0.04
+
+            if rsi > 65.0:
+                contextual_min_score += 0.04
+
+            contextual_min_score = max(0.62, min(contextual_min_score, 0.82))
+
+            approved = final_score >= contextual_min_score
+
             return DynamicSelectionResult(
                 mode=mode,
-                approved=False,
-                reason="BLOCK_SIDEWAYS_WEAK",
-                min_score_required=profile.min_score_other,
+                approved=approved,
+                reason=(
+                    "SIDEWAYS_WEAK_DYNAMIC_OK"
+                    if approved
+                    else "SIDEWAYS_WEAK_DYNAMIC_SCORE_LOW"
+                ),
+                min_score_required=contextual_min_score,
             )
-            
-                # ❌ Bloqueio: momentum neutro fraco
+
+            # ❌ Bloqueio: momentum neutro fraco
         if momentum == "NEUTRAL":
 
             # ======================================================

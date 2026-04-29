@@ -251,7 +251,13 @@ class MockExecutor:
 
                 print(f"[MOCK STATE] carregado | balance={self.balance_usdc:.4f}")
             else:
-                print("[MOCK STATE] nenhum estado encontrado — criando novo")
+                print(
+                    "[MOCK STATE] nenhum estado encontrado — iniciando com saldo atual em memória"
+                )
+
+                # 🔒 NÃO força reset para 1000 automaticamente
+                # mantém o balance_usdc atual (proteção contra restart da VPS)
+
                 self._save_state()
 
         except Exception as e:

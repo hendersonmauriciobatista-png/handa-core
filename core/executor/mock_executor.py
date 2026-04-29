@@ -35,7 +35,10 @@ class MockExecutor:
         self.balance_usdc = float(initial_balance)
 
         self.initial_balance = float(initial_balance)
-        self.state_file = "storage/mock_state.json"
+        project_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..")
+        )
+        self.state_file = os.path.join(project_root, "storage", "mock_state.json")
 
         self.git_persist_enabled = True
         self.git_state_commit_message = "chore: update mock state"

@@ -257,13 +257,37 @@ class SelectionPolicyEngine:
                 and volume >= 1.2
                 and score >= 0.80
             ):
-                premium_override = True
 
-                print(
-                    f"[PREMIUM OVERRIDE] {data.symbol} | "
-                    f"score={score:.4f} | trend={trend} | "
-                    f"momentum={momentum} | state={state} | vol={volume:.2f}"
+                mqii_state = str(market_context.get("mqii_state", "")).upper()
+                avg_volume_ratio = float(
+                    market_context.get("avg_volume_ratio", 0.0) or 0.0
                 )
+                approved_count = int(market_context.get("approved_count", 0) or 0)
+
+                # ======================================================
+                # 🔥 H&A PATCH — PREMIUM CONTEXT FILTER
+                # ======================================================
+                # Só permite premium se o mercado estiver minimamente saudável
+                # ======================================================
+
+                allow_premium = False
+
+                if mqii_state == "TRADE_OK":
+                    allow_premium = True
+
+                elif mqii_state == "CAUTIOUS":
+                    if avg_volume_ratio >= 1.0 and approved_count >= 2:
+                        allow_premium = True
+
+                if allow_premium:
+                    premium_override = True
+
+                    print(
+                        f"[PREMIUM OVERRIDE] {data.symbol} | "
+                        f"score={score:.4f} | trend={trend} | "
+                        f"momentum={momentum} | state={state} | vol={volume:.2f} | "
+                        f"mqii={mqii_state}"
+                    )
 
         except Exception as e:
             print(f"[PREMIUM OVERRIDE ERROR] {data.symbol} | erro={e}")

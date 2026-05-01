@@ -834,6 +834,17 @@ class SlotController:
                 if self._decision_engine:
                     signal = self._decision_engine.evaluate_buy(snapshot)
 
+                if not signal:
+                    print(
+                        f"[DECISION REJECTION] {symbol} | "
+                        f"snapshot_price={snapshot.price:.8f} | "
+                        f"rsi={snapshot.rsi:.2f} | "
+                        f"ema_fast={snapshot.ema_fast:.8f} | "
+                        f"ema_slow={snapshot.ema_slow:.8f} | "
+                        f"volume_ratio={snapshot.volume_ratio:.4f} | "
+                        f"atr={snapshot.atr:.8f}"
+                    )
+
                 # ==========================================================
                 # ALO GATE v1 (ALO + MQII CONSENSO)
                 # ==========================================================

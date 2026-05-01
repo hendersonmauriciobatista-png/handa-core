@@ -9,10 +9,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional
 
-
 # =============================================================================
 # ENUMS
 # =============================================================================
+
 
 class ConfidenceLevel(str, Enum):
     VERY_HIGH = "VERY_HIGH"
@@ -74,6 +74,7 @@ class ALOMode(str, Enum):
 # INPUT MODELS
 # =============================================================================
 
+
 @dataclass
 class TechnicalContext:
     price: float
@@ -115,6 +116,12 @@ class MemoryContext:
     recent_failures: int = 0
     recent_wins: int = 0
     confidence_history_score: float = 0.5
+
+    # ------------------------------------------------------
+    # DRC CONTEXT (Reentry control)
+    # ------------------------------------------------------
+    same_symbol_recent_trades: int = 0
+    same_symbol_recent_failures: int = 0
 
 
 @dataclass
@@ -159,6 +166,7 @@ class ALOInput:
 # INTERNAL MODELS
 # =============================================================================
 
+
 @dataclass
 class ReasonBundle:
     codes: List[str] = field(default_factory=list)
@@ -184,6 +192,7 @@ class BehaviorProfile:
 # =============================================================================
 # OUTPUT MODEL
 # =============================================================================
+
 
 @dataclass
 class ALOGuidance:

@@ -963,6 +963,7 @@ class SlotController:
                             ALOMode,
                             TechnicalContext,
                             MacroMarketContext,
+                            MemoryContext,
                             GuidanceType,
                         )
 
@@ -1047,10 +1048,33 @@ class SlotController:
                             ),
                         )
 
+                        drc_data = {}
+
+                        try:
+                            if (
+                                hasattr(self, "position_manager")
+                                and self.position_manager
+                            ):
+                                drc_data = getattr(
+                                    self.position_manager, "drc_memory", {}
+                                ).get(symbol, {})
+                        except Exception:
+                            drc_data = {}
+
+                        memory = MemoryContext(
+                            same_symbol_recent_trades=int(
+                                drc_data.get("recent_trades", 0) or 0
+                            ),
+                            same_symbol_recent_failures=int(
+                                drc_data.get("recent_failures", 0) or 0
+                            ),
+                        )
+
                         guidance = self._alo_intelligent.evaluate(
                             symbol=symbol,
                             technical=technical,
                             macro=macro,
+                            memory=memory,
                         )
 
                         print(f"[ALO INTEL GATE] {guidance.explainability_text}")

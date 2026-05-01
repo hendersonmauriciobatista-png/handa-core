@@ -602,6 +602,32 @@ class PositionManager:
         else:
             self.penalty_map[symbol_name] = self.penalty_map.get(symbol_name, 0) + 1
 
+        # ======================================================
+        # 🔥 DRC MEMORY FEED (NOVO)
+        # ======================================================
+        if not hasattr(self, "drc_memory"):
+            self.drc_memory = {}
+
+        symbol_data = self.drc_memory.get(
+            symbol_name,
+            {
+                "recent_trades": 0,
+                "recent_failures": 0,
+            },
+        )
+
+        # incrementa trades
+        symbol_data["recent_trades"] += 1
+
+        # incrementa falhas
+        if net_usdc < 0:
+            symbol_data["recent_failures"] += 1
+        else:
+            # reduz falhas em caso de sucesso
+            symbol_data["recent_failures"] = max(0, symbol_data["recent_failures"] - 1)
+
+        self.drc_memory[symbol_name] = symbol_data
+
         logger.info(
             "[CLOSE] %s | pnl=%.4f USDC | reason=%s", symbol_name, net_usdc, reason
         )

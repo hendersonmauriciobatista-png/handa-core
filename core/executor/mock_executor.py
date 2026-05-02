@@ -9,6 +9,11 @@ import os
 import subprocess
 from datetime import datetime
 
+try:
+    from core.persistence.postgres_state_repository import PostgresStateRepository
+except Exception:
+    PostgresStateRepository = None
+
 
 def format_buy_telegram(pair: str, entry: float, capital: float) -> str:
     return f"BUY | {pair}\n" f"{entry:.8f} | {capital:.2f} USDC"
@@ -50,6 +55,22 @@ class MockExecutor:
 
         # pair -> dict com dados da posição
         self.positions = {}
+
+        # =========================================
+        # POSTGRES PERSISTENCE (NOVO)
+        # =========================================
+        self.state_repo = None
+
+        if PostgresStateRepository is not None:
+            try:
+                self.state_repo = PostgresStateRepository()
+                self.state_repo.initialize()
+                print("[PERSISTENCE] PostgreSQL ativo")
+            except Exception as e:
+                print(f"[PERSISTENCE] fallback para JSON | erro={e}")
+                self.state_repo = None
+        else:
+            print("[PERSISTENCE] PostgreSQL indisponível — usando JSON")
 
         # 🔒 DESATIVA PULL AUTOMÁTICO (evita reset de saldo)
         # self._pull_state_from_git()
@@ -261,6 +282,27 @@ class MockExecutor:
 
     def _load_state(self):
         try:
+            if self.state_repo is not None:
+                data = self.state_repo.load_system_state("mock_executor_state")
+
+                if data:
+                    self.balance_usdc = float(
+                        data.get("current_balance", self.balance_usdc)
+                    )
+                    self.initial_balance = float(
+                        data.get("initial_balance", self.initial_balance)
+                    )
+                    self.positions = data.get("positions", {}) or {}
+
+                    print(
+                        f"[MOCK STATE DB] carregado | balance={self.balance_usdc:.4f}"
+                    )
+                    return
+
+                print("[MOCK STATE DB] nenhum estado encontrado — criando inicial")
+                self._save_state()
+                return
+
             if os.path.exists(self.state_file):
                 with open(self.state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -271,18 +313,13 @@ class MockExecutor:
                 self.initial_balance = float(
                     data.get("initial_balance", self.initial_balance)
                 )
-
                 self.positions = data.get("positions", {}) or {}
 
-                print(f"[MOCK STATE] carregado | balance={self.balance_usdc:.4f}")
+                print(f"[MOCK STATE JSON] carregado | balance={self.balance_usdc:.4f}")
             else:
                 print(
-                    "[MOCK STATE] nenhum estado encontrado — iniciando com saldo atual em memória"
+                    "[MOCK STATE JSON] nenhum estado encontrado — iniciando em memória"
                 )
-
-                # 🔒 NÃO força reset para 1000 automaticamente
-                # mantém o balance_usdc atual (proteção contra restart da VPS)
-
                 self._save_state()
 
         except Exception as e:
@@ -327,8 +364,6 @@ class MockExecutor:
 
     def _save_state(self):
         try:
-            os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
-
             pnl_total = self.balance_usdc - self.initial_balance
             pnl_pct = (
                 (pnl_total / self.initial_balance) * 100
@@ -345,10 +380,19 @@ class MockExecutor:
                 "last_update": datetime.utcnow().isoformat(),
             }
 
+            if self.state_repo is not None:
+                self.state_repo.save_system_state("mock_executor_state", data)
+                print(f"[MOCK STATE DB] salvo | balance={self.balance_usdc:.4f}")
+                return
+
+            os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+
             with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
 
             self._persist_state_to_git()
+
+            print(f"[MOCK STATE JSON] salvo | balance={self.balance_usdc:.4f}")
 
         except Exception as e:
             print(f"[MOCK STATE ERROR - SAVE] {e}")

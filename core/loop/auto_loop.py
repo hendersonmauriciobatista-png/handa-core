@@ -77,19 +77,31 @@ class AutoLoop:
 
                 try:
                     from core.alo_intelligence.alo_core import ALOIntelligentCore
-                    from core.alo_intelligence.alo_models import ALOMode, TechnicalContext, MacroMarketContext
+                    from core.alo_intelligence.alo_models import (
+                        ALOMode,
+                        TechnicalContext,
+                        MacroMarketContext,
+                    )
 
                     if not hasattr(self, "_alo_intelligent"):
-                        self._alo_intelligent = ALOIntelligentCore(mode=ALOMode.ADVISORY)
+                        self._alo_intelligent = ALOIntelligentCore(
+                            mode=ALOMode.ADVISORY
+                        )
 
                     # 🔥 PEGAR OPPORTUNITIES
-                    opportunities = getattr(self.slot_controller, "_last_opportunities", None)
+                    opportunities = getattr(
+                        self.slot_controller, "_last_opportunities", None
+                    )
 
                     if not opportunities:
-                        opportunities = getattr(self.slot_controller, "last_opportunities", None)
+                        opportunities = getattr(
+                            self.slot_controller, "last_opportunities", None
+                        )
 
                     if not opportunities:
-                        opportunities = getattr(self.slot_controller, "opportunities", None)
+                        opportunities = getattr(
+                            self.slot_controller, "opportunities", None
+                        )
 
                     if opportunities:
 
@@ -97,17 +109,30 @@ class AutoLoop:
                         # 🔥 MULTI-SLOT DISPATCH REAL
                         # ======================================================
 
-                        available_slots = max(
-                            0,
-                            getattr(self.slot_controller, "max_slots", 4)
-                            - len(getattr(self.slot_controller, "active_positions", []))
+                        # 🔒 CONTAGEM REAL DE SLOTS OCUPADOS
+                        slots = getattr(self.slot_controller, "slots", {})
+
+                        occupied_slots = sum(
+                            1
+                            for s in slots.values()
+                            if getattr(s, "state", "")
+                            in ("ANALYZING", "READY", "RUNNING")
                         )
+
+                        max_slots = getattr(self.slot_controller, "max_slots", 4)
+
+                        available_slots = max(0, max_slots - occupied_slots)
+
+                        if occupied_slots >= max_slots:
+                            print(
+                                f"[SLOT LIMIT] bloqueado | occupied={occupied_slots}/{max_slots}"
+                            )
 
                         if available_slots > 0:
                             selected_ops = opportunities[:available_slots]
 
                     if opportunities:
-                                  
+
                         # ======================================================
                         # 🔥 USAR PRIMEIRO OP PARA CONTEXTO (ALO)
                         # ======================================================
@@ -134,10 +159,14 @@ class AutoLoop:
                             )
 
                             macro = MacroMarketContext(
-                                liquidity_score=market_context.get("avg_volume_ratio", 0.5),
+                                liquidity_score=market_context.get(
+                                    "avg_volume_ratio", 0.5
+                                ),
                                 liquidity_label="AUTO",
                                 liquidity_message="",
-                                avg_volume_ratio=market_context.get("avg_volume_ratio", 1.0),
+                                avg_volume_ratio=market_context.get(
+                                    "avg_volume_ratio", 1.0
+                                ),
                                 uptrend_count=market_context.get("uptrend_count", 0),
                                 refined_count=market_context.get("refined_count", 0),
                                 approved_count=market_context.get("approved_count", 0),

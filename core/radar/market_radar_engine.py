@@ -283,7 +283,6 @@ class MarketRadarEngine:
         if self._consume_symbol_cooldown(self.rejection_cooldowns, symbol):
             return True
 
-        
         return False
 
     def _passes_operational_filter(self, item):
@@ -530,14 +529,21 @@ class MarketRadarEngine:
             # =========================================================
             market_context = {
                 "mqii_state": self._safe_upper(self.market_quality.get("state")),
-                "liquidity_score": self._to_float(self.market_liquidity.get("liquidity_score", 0.0)),
-                "approved_count": int(self.market_liquidity.get("approved_count", 0) or 0),
-                "uptrend_count": int(self.market_liquidity.get("uptrend_count", 0) or 0),
-                "avg_volume_ratio": self._to_float(self.market_liquidity.get("avg_volume_ratio", 0.0)),
+                "liquidity_score": self._to_float(
+                    self.market_liquidity.get("liquidity_score", 0.0)
+                ),
+                "approved_count": int(
+                    self.market_liquidity.get("approved_count", 0) or 0
+                ),
+                "uptrend_count": int(
+                    self.market_liquidity.get("uptrend_count", 0) or 0
+                ),
+                "avg_volume_ratio": self._to_float(
+                    self.market_liquidity.get("avg_volume_ratio", 0.0)
+                ),
             }
 
             adjusted_item["market_context"] = market_context
-
 
             # =========================================================
             # SELECTION POLICY ENGINE (FILTRO SOBERANO)
@@ -600,7 +606,6 @@ class MarketRadarEngine:
                 adjusted_item["mce_weak"] = True
             else:
                 adjusted_item["mce_weak"] = False
-            
 
             dynamic_min_final_score = self._get_dynamic_min_final_score()
             final_score = self._to_float(adjusted_item.get("score", 0.0), default=0.0)
@@ -610,7 +615,9 @@ class MarketRadarEngine:
             # ======================================================
 
             mqii_state = self._safe_upper(self.market_quality.get("state"))
-            liquidity_score = self._to_float(self.market_liquidity.get("liquidity_score", 0.0))
+            liquidity_score = self._to_float(
+                self.market_liquidity.get("liquidity_score", 0.0)
+            )
 
             # ======================================================
             # 🔥 FALLBACK — CONTEXTO INICIAL (MQII NÃO PRONTO)
@@ -619,8 +626,32 @@ class MarketRadarEngine:
                 mqii_state = "CAUTIOUS"
                 liquidity_score = 0.40
 
-
             if adjusted_item.get("mce_weak", False):
+
+                analysis = adjusted_item.get("analysis", {})
+                market_state = self._safe_upper(analysis.get("market_state"))
+                momentum_state = self._safe_upper(analysis.get("momentum"))
+
+                # 🔒 BLOQUEIO DIRETO — CONTEXTO FRACO
+                if market_state == "SIDEWAYS" or momentum_state == "NEUTRAL":
+                    print(
+                        f"[MCE BLOCK] {symbol} bloqueado | "
+                        f"state={market_state} | momentum={momentum_state}"
+                    )
+
+                    self._record_radar_non_execution(
+                        item=adjusted_item,
+                        reason="MCE_WEAK_BLOCKED_CONTEXT",
+                        summary="RADAR_MCE_CONTEXT_BLOCK",
+                        market_context={
+                            "mqii_state": mqii_state,
+                            "market_state": market_state,
+                            "momentum": momentum_state,
+                            "mce_weak": True,
+                        },
+                    )
+
+                    continue
 
                 # ======================================================
                 # 🔥 ALO LEARNING — MCE V3 WEAK CONFIRMATION
@@ -684,12 +715,15 @@ class MarketRadarEngine:
                     continue
 
                 # mercado forte → tolera mais
-                if mqii_state in ("TRADE_OK", "AGGRESSIVE_OK") and liquidity_score >= 0.6:
+                if (
+                    mqii_state in ("TRADE_OK", "AGGRESSIVE_OK")
+                    and liquidity_score >= 0.6
+                ):
                     dynamic_min_final_score += 0.04
 
             # mercado médio → exige mais confirmação
             elif mqii_state in ("CAUTIOUS", "SIDEWAYS"):
-                  dynamic_min_final_score += 0.06
+                dynamic_min_final_score += 0.06
 
             # mercado fraco → bloqueia mais forte
             else:
@@ -895,10 +929,15 @@ class MarketRadarEngine:
                 # CORREÇÃO — SINCRONIZA LIQUIDEZ NO SNAPSHOT
                 # ============================================
                 if isinstance(ranking_market_snapshot, dict):
-                    ranking_market_snapshot["liquidity_score"] = liquidity_data.get("liquidity_score", 0.0)
-                    ranking_market_snapshot["liquidity_label"] = liquidity_data.get("liquidity_label", "")
-                    ranking_market_snapshot["liquidity_message"] = liquidity_data.get("liquidity_message", "")
-
+                    ranking_market_snapshot["liquidity_score"] = liquidity_data.get(
+                        "liquidity_score", 0.0
+                    )
+                    ranking_market_snapshot["liquidity_label"] = liquidity_data.get(
+                        "liquidity_label", ""
+                    )
+                    ranking_market_snapshot["liquidity_message"] = liquidity_data.get(
+                        "liquidity_message", ""
+                    )
 
                 mqii_snapshot = self.mqii.evaluate_market(
                     all_analyses=raw_ranking,
@@ -943,11 +982,19 @@ class MarketRadarEngine:
                 # SINCRONIZA LIQUIDEZ COM SNAPSHOT GLOBAL
                 # ============================================
                 if isinstance(ranking_market_snapshot, dict):
-                    ranking_market_snapshot.update({
-                        "liquidity_score": liquidity_data.get("liquidity_score", 0.0),
-                        "liquidity_label": liquidity_data.get("liquidity_label", ""),
-                        "liquidity_message": liquidity_data.get("liquidity_message", ""),
-                    })
+                    ranking_market_snapshot.update(
+                        {
+                            "liquidity_score": liquidity_data.get(
+                                "liquidity_score", 0.0
+                            ),
+                            "liquidity_label": liquidity_data.get(
+                                "liquidity_label", ""
+                            ),
+                            "liquidity_message": liquidity_data.get(
+                                "liquidity_message", ""
+                            ),
+                        }
+                    )
 
                 self.market_quality = mqii_snapshot
 

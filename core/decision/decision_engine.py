@@ -19,7 +19,6 @@ from core.alo_decision import AloDecisionLayer, AloDecisionMode
 from core.alo.dynamic_core_adapter import AloDynamicCoreAdapter
 from core.alo.dynamic_core_engine import AloDynamicCoreEngine
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -98,7 +97,6 @@ class DecisionEngine:
         self.dynamic_core_adapter = AloDynamicCoreAdapter()
         self.dynamic_core_engine = AloDynamicCoreEngine()
 
-
         # ==========================================================
         # 🔥 H&A MEMORY (INJETADO - NÃO REMOVER)
         # ==========================================================
@@ -107,7 +105,6 @@ class DecisionEngine:
         self.last_trade_time = 0
         self.last_trade_was_loss = False
         self.last_trade_duration = 9999
-
 
         logger.info("[DecisionEngine] BUY ONLY + Dynamic Policy FULL inicializado")
 
@@ -210,8 +207,6 @@ class DecisionEngine:
                     f"vol={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f}"
                 )
 
-
-
             recent_loss = getattr(self, "last_trade_was_loss", False)
 
             # ======================================================
@@ -219,10 +214,7 @@ class DecisionEngine:
             # ======================================================
             last_duration = getattr(self, "last_trade_duration", 9999)
 
-            fast_loss_block = (
-                recent_loss
-                and last_duration <= 30  # segundos
-            )
+            fast_loss_block = recent_loss and last_duration <= 30  # segundos
 
             if fast_loss_block:
                 logger.info(
@@ -230,7 +222,6 @@ class DecisionEngine:
                     f"duration={last_duration}s"
                 )
                 return None
-
 
             reentry_allowed = (
                 float(snapshot.ema_fast) > float(snapshot.ema_slow)
@@ -240,7 +231,9 @@ class DecisionEngine:
 
             # 🔥 BLOQUEIO INTELIGENTE PÓS-LOSS
             if recent_loss and not reentry_allowed:
-                logger.info(f"[Engine] BLOQUEADO POR LOSS RECENTE (setup fraco): {pair}")
+                logger.info(
+                    f"[Engine] BLOQUEADO POR LOSS RECENTE (setup fraco): {pair}"
+                )
                 return None
 
             # comportamento original
@@ -252,7 +245,7 @@ class DecisionEngine:
                     f"[Engine] REENTRADA CONTROLADA PERMITIDA: {pair} | "
                     f"volume={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f}"
                 )
-            
+
         # 2. BLOQUEIO POR PENALTY
         penalty = self.penalty_map.get(pair, 0)
         if penalty >= 2:
@@ -279,7 +272,6 @@ class DecisionEngine:
         ema_fast = float(snapshot.ema_fast or 0.0)
         ema_slow = float(snapshot.ema_slow or 0.0)
 
-        
         market_ctx = self._build_market_context(snapshot)
         system_ctx = self._build_system_context()
         lc1_feedback = self.lc1_adapter.build_feedback(pair)
@@ -449,23 +441,37 @@ class DecisionEngine:
 
             if self.alo is not None:
                 try:
-                    self.alo.ingest_event({
-                       "symbol": pair,
-                       "event_type": "NON_EXECUTION",
-                       "reason": "BUY_REJECTED",
-                       "analysis": {
-                           "selection_score": float(confidence)
-                       },
-                       "market_context": {
-                           "stage": "DECISION_ENGINE",
-                           "mqii_state": getattr(self, "mqii_quality", {}).get("state", "") if isinstance(getattr(self, "mqii_quality", None), dict) else "",
-                           "liquidity_score": getattr(self, "mqii_quality", {}).get("liquidity_score", 0.0) if isinstance(getattr(self, "mqii_quality", None), dict) else 0.0,
-                        },
-                        "snapshot": {
-                            "volume_ratio": float(snapshot.volume_ratio or 0.0),
-                            "rsi_14": float(snapshot.rsi or 0.0),
+                    self.alo.ingest_event(
+                        {
+                            "symbol": pair,
+                            "event_type": "NON_EXECUTION",
+                            "reason": "BUY_REJECTED",
+                            "analysis": {"selection_score": float(confidence)},
+                            "market_context": {
+                                "stage": "DECISION_ENGINE",
+                                "mqii_state": (
+                                    getattr(self, "mqii_quality", {}).get("state", "")
+                                    if isinstance(
+                                        getattr(self, "mqii_quality", None), dict
+                                    )
+                                    else ""
+                                ),
+                                "liquidity_score": (
+                                    getattr(self, "mqii_quality", {}).get(
+                                        "liquidity_score", 0.0
+                                    )
+                                    if isinstance(
+                                        getattr(self, "mqii_quality", None), dict
+                                    )
+                                    else 0.0
+                                ),
+                            },
+                            "snapshot": {
+                                "volume_ratio": float(snapshot.volume_ratio or 0.0),
+                                "rsi_14": float(snapshot.rsi or 0.0),
+                            },
                         }
-                    })
+                    )
                 except Exception as e:
                     logger.warning(f"[ALO INGEST ERROR - NON_EXECUTION] {e}")
 
@@ -561,11 +567,13 @@ class DecisionEngine:
             except Exception as e:
                 logger.warning(f"[ALO DECISION OBS ERROR] {e}")
 
-
         # ==========================================================
         # 🔥 ALO DYNAMIC CORE (OBSERVER ONLY)
         # ==========================================================
-        if self.dynamic_core_adapter is not None and self.dynamic_core_engine is not None:
+        if (
+            self.dynamic_core_adapter is not None
+            and self.dynamic_core_engine is not None
+        ):
             try:
                 dynamic_profile = None
                 if self.alo is not None:
@@ -650,7 +658,8 @@ class DecisionEngine:
                         and trend_raw.endswith("UPTREND")
                         and momentum_raw.endswith("BULLISH")
                         and volume_state_raw in ("HIGH", "MODERATE")
-                        and market_state_raw in (
+                        and market_state_raw
+                        in (
                             "BULLISH_STRONG",
                             "AGGRESSIVE_OK",
                             "TRADE_OK",
@@ -1060,11 +1069,8 @@ class DecisionEngine:
 
         if rsi < 50:
             reasons.append("PRE_V2: RSI fraco")
-            logger.info(
-                f"[PRE V2] BLOQUEADO | {symbol} | RSI fraco | rsi={rsi:.2f}"
-            )
+            logger.info(f"[PRE V2] BLOQUEADO | {symbol} | RSI fraco | rsi={rsi:.2f}")
             return False, reasons, 0.0
-
 
         if price <= 0:
             reasons.append("Preço inválido")
@@ -1189,12 +1195,8 @@ class DecisionEngine:
         market_state_raw = (
             str(getattr(snapshot, "market_state", "") or "").strip().upper()
         )
-        trend_raw = (
-            str(getattr(snapshot, "trend", "") or "").strip().upper()
-        )
-        momentum_raw = (
-            str(getattr(snapshot, "momentum", "") or "").strip().upper()
-        )
+        trend_raw = str(getattr(snapshot, "trend", "") or "").strip().upper()
+        momentum_raw = str(getattr(snapshot, "momentum", "") or "").strip().upper()
         volume_state_raw = (
             str(getattr(snapshot, "volume_state", "") or "").strip().upper()
         )
@@ -1204,8 +1206,6 @@ class DecisionEngine:
             and momentum_raw == "NEUTRAL"
             and volume_state_raw == "LOW"
         ):
-            
-        
 
             reasons.append("MCE_V2: SIDEWAYS + NEUTRAL + LOW_VOLUME")
             logger.info(
@@ -1233,7 +1233,6 @@ class DecisionEngine:
                 f"[MCE PATCH] NEUTRAL PREMIUM LIBERADO | {symbol} | "
                 f"rsi={rsi:.2f} | vol={volume_ratio:.2f}"
             )
-
 
         if price <= 0:
             reasons.append("Preço inválido")
@@ -1401,5 +1400,39 @@ class DecisionEngine:
             f"| volume_score={volume_score:.3f} | rsi_score={rsi_score:.3f} "
             f"| trend_score={trend_score:.3f}"
         )
+
+        # ======================================================
+        # 🔥 PATCH — MQII CONTEXTUAL FILTER (CAUTIOUS)
+        # ======================================================
+        try:
+            mqii = getattr(self, "mqii_quality", None)
+
+            if isinstance(mqii, dict):
+                mqii_state = str(mqii.get("state", "")).strip().upper()
+                mqii_score = float(mqii.get("score", 0.0) or 0.0)
+
+                if mqii_state == "CAUTIOUS":
+
+                    trend_raw = str(getattr(snapshot, "trend", "")).upper()
+                    momentum_raw = str(getattr(snapshot, "momentum", "")).upper()
+                    volume_ratio = float(snapshot.volume_ratio or 0.0)
+
+                    strong_confirmation = (
+                        trend_raw.endswith("UPTREND")
+                        and momentum_raw.endswith("BULLISH")
+                        and volume_ratio >= 1.10
+                        and confidence >= 0.70
+                    )
+
+                    if not strong_confirmation:
+                        logger.info(
+                            f"[MQII FILTER] BLOQUEADO (CAUTIOUS) | {symbol} | "
+                            f"trend={trend_raw} | momentum={momentum_raw} | "
+                            f"vol={volume_ratio:.2f} | conf={confidence:.3f}"
+                        )
+                        return False, ["MQII_CAUTION_BLOCK"], 0.0
+
+        except Exception as e:
+            logger.warning(f"[MQII FILTER ERROR] {e}")
 
         return True, reasons, confidence

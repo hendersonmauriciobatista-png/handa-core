@@ -10,7 +10,8 @@ from datetime import datetime
 
 try:
     from core.persistence.postgres_state_repository import PostgresStateRepository
-except Exception:
+except Exception as e:
+    print(f"[PERSISTENCE IMPORT ERROR] {e}")
     PostgresStateRepository = None
 
 

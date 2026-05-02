@@ -51,7 +51,8 @@ class MockExecutor:
         # pair -> dict com dados da posição
         self.positions = {}
 
-        self._pull_state_from_git()
+        # 🔒 DESATIVA PULL AUTOMÁTICO (evita reset de saldo)
+        # self._pull_state_from_git()
 
         self._load_state()
 

@@ -8,12 +8,14 @@ import json
 import os
 from datetime import datetime
 
+try:
+    from core.persistence.postgres_state_repository import PostgresStateRepository
+except Exception:
+    PostgresStateRepository = None
+
 
 def format_buy_telegram(pair: str, entry: float, capital: float) -> str:
-    return (
-        f"BUY | {pair}\n"
-        f"{entry:.8f} | {capital:.2f} USDC"
-    )
+    return f"BUY | {pair}\n" f"{entry:.8f} | {capital:.2f} USDC"
 
 
 class MockExecutor:
@@ -41,12 +43,30 @@ class MockExecutor:
         self.balance_usdc = float(initial_balance)
         self.initial_balance = float(initial_balance)
 
+        # =========================================
+        # POSTGRES PERSISTENCE
+        # =========================================
+        self.state_repo = None
+
+        if PostgresStateRepository is not None:
+            try:
+                self.state_repo = PostgresStateRepository()
+                self.state_repo.initialize()
+                print("[PERSISTENCE] PostgreSQL ativo")
+            except Exception as e:
+                print(f"[PERSISTENCE] fallback para JSON | erro={e}")
+                self.state_repo = None
+        else:
+            print("[PERSISTENCE] PostgreSQL indisponível")
+
         # tenta carregar estado salvo
         loaded = self._load_state()
 
         # se não carregou nada, mantém initial_balance
         if not loaded:
-            print("[MOCK STATE] nenhum estado anterior encontrado, usando saldo inicial")
+            print(
+                "[MOCK STATE] nenhum estado anterior encontrado, usando saldo inicial"
+            )
 
         # pair -> dados da posição
         self.positions = {}
@@ -227,6 +247,27 @@ class MockExecutor:
     # =================================================
     def _load_state(self):
         try:
+            if self.state_repo is not None:
+                data = self.state_repo.load_system_state("mock_executor_state")
+
+                if data:
+                    self.balance_usdc = float(
+                        data.get("current_balance", self.balance_usdc)
+                    )
+                    self.initial_balance = float(
+                        data.get("initial_balance", self.initial_balance)
+                    )
+                    self.positions = data.get("positions", {}) or {}
+
+                    print(
+                        f"[MOCK STATE DB] carregado | balance={self.balance_usdc:.4f}"
+                    )
+                    return True
+
+                print("[MOCK STATE DB] nenhum estado encontrado — criando inicial")
+                self._save_state()
+                return False
+
             if os.path.exists(self.state_file):
                 with open(self.state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -238,13 +279,11 @@ class MockExecutor:
                     data.get("initial_balance", self.initial_balance)
                 )
 
-                print(f"[MOCK STATE] carregado | balance={self.balance_usdc:.4f}")
+                print(f"[MOCK STATE JSON] carregado | balance={self.balance_usdc:.4f}")
                 return True
 
-            else:
-                # cria estado inicial se não existir
-                self._save_state()
-                return False
+            self._save_state()
+            return False
 
         except Exception as e:
             print(f"[MOCK STATE ERROR - LOAD] {e}")
@@ -252,8 +291,6 @@ class MockExecutor:
 
     def _save_state(self):
         try:
-            os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
-
             pnl_total = self.balance_usdc - self.initial_balance
             pnl_pct = (
                 (pnl_total / self.initial_balance) * 100
@@ -264,13 +301,23 @@ class MockExecutor:
             data = {
                 "initial_balance": self.initial_balance,
                 "current_balance": self.balance_usdc,
+                "positions": self.positions,
                 "pnl_total": round(pnl_total, 6),
                 "pnl_pct": round(pnl_pct, 4),
                 "last_update": datetime.utcnow().isoformat(),
             }
 
+            if self.state_repo is not None:
+                self.state_repo.save_system_state("mock_executor_state", data)
+                print(f"[MOCK STATE DB] salvo | balance={self.balance_usdc:.4f}")
+                return
+
+            os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+
             with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+
+            print(f"[MOCK STATE JSON] salvo | balance={self.balance_usdc:.4f}")
 
         except Exception as e:
             print(f"[MOCK STATE ERROR - SAVE] {e}")

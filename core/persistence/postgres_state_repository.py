@@ -21,7 +21,11 @@ class PostgresStateRepository(StateRepository):
     """
 
     def __init__(self):
-        self.database_url = os.getenv("DATABASE_URL")
+        self.database_url = (
+            os.getenv("DATABASE_URL")
+            or os.getenv("DATABASE_URL")
+            or os.getenv("DATABASE_PUBLIC_URL")
+        )
 
         if not self.database_url:
             raise RuntimeError(

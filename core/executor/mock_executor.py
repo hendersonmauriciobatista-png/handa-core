@@ -196,10 +196,12 @@ class MockExecutor:
 
         entry_price = float(pos["entry_price"])
         quantity = float(pos["quantity"])
-        allocated_usdc = float(pos["allocated_usdc"])
+
+        # 🔥 RECONSTRUÇÃO DO CAPITAL REAL (elimina drift)
+        capital_real = quantity * entry_price
 
         usdc_received = quantity * exit_price
-        net_pnl_usdc = usdc_received - allocated_usdc
+        net_pnl_usdc = usdc_received - capital_real
 
         # devolve saldo
         self.balance_usdc += usdc_received

@@ -192,7 +192,7 @@ class MockExecutor:
         if not pos:
             return None
 
-        exit_price = self.get_current_price(pair)
+        exit_price = float(reason.exit_price)
 
         entry_price = float(pos["entry_price"])
         quantity = float(pos["quantity"])

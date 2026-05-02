@@ -759,6 +759,20 @@ class SlotController:
         self._start_new_cycle()
 
         # ==========================================================
+        # 🔒 GLOBAL COOLDOWN DE ENTRADA (ANTI-FLOOD)
+        # ==========================================================
+        now = time.time()
+
+        if hasattr(self, "_last_buy_ts"):
+            elapsed = now - self._last_buy_ts
+
+            if elapsed < 10:  # 🔥 10 segundos entre ciclos de BUY
+                print(
+                    f"[GLOBAL COOLDOWN] bloqueando novas entradas | elapsed={elapsed:.2f}s"
+                )
+                opportunities = []
+
+        # ==========================================================
         # 2. SCAN GLOBAL (1x POR CICLO)
         # ==========================================================
         opportunities = []
@@ -1491,6 +1505,10 @@ class SlotController:
             slot.quantity = result.quantity
             slot.pending_buy_signal = None
             slot._state = "RUNNING"
+
+            # 🔒 REGISTRA TEMPO DO ÚLTIMO BUY GLOBAL
+            self._last_buy_ts = time.time()
+
             self._unblock_rejected_symbol(slot.pair)
 
             try:

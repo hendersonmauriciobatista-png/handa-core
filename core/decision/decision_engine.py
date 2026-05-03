@@ -223,6 +223,80 @@ class DecisionEngine:
                 )
                 return None
 
+            # ======================================================
+            # 🔥 DRC V3 — REVALIDAÇÃO CONTEXTUAL PÓS-LOSS / STAGNATION
+            # ======================================================
+            revalidation_required = recent_loss and 30 < last_duration <= 360
+
+            if revalidation_required:
+                mqii_state = ""
+                avg_market_volume = 1.0
+
+                try:
+                    mqii = getattr(self, "mqii_quality", None)
+                    if isinstance(mqii, dict):
+                        mqii_state = str(mqii.get("state", "") or "").strip().upper()
+                        avg_market_volume = float(
+                            mqii.get("avg_volume_ratio", 1.0) or 1.0
+                        )
+                except Exception:
+                    mqii_state = ""
+                    avg_market_volume = 1.0
+
+                if mqii_state == "NO_TRADE":
+                    logger.info(
+                        f"[DRC V3] BLOQUEADO {pair} | motivo=MQII_NO_TRADE | "
+                        f"last_duration={last_duration}s"
+                    )
+                    return None
+
+                if mqii_state == "CAUTIOUS":
+                    volume_factor = 1.35
+                    max_rsi_reentry = 68.0
+                elif mqii_state in ("TRADE_OK", "AGGRESSIVE_OK"):
+                    volume_factor = 1.20
+                    max_rsi_reentry = 72.0
+                else:
+                    volume_factor = 1.30
+                    max_rsi_reentry = 70.0
+
+                dynamic_min_volume = max(
+                    1.20, min(2.80, avg_market_volume * volume_factor)
+                )
+
+                price = float(snapshot.price or 0.0)
+                ema_fast = float(snapshot.ema_fast or 0.0)
+                ema_slow = float(snapshot.ema_slow or 0.0)
+                rsi = float(snapshot.rsi or 0.0)
+                volume_ratio = float(snapshot.volume_ratio or 0.0)
+
+                ema_spread = abs(ema_fast - ema_slow) / price if price > 0 else 0.0
+                dynamic_min_spread = 0.00035 if mqii_state == "CAUTIOUS" else 0.00025
+
+                drc_revalidation_ok = (
+                    ema_fast > ema_slow
+                    and ema_spread >= dynamic_min_spread
+                    and volume_ratio >= dynamic_min_volume
+                    and 50 <= rsi <= max_rsi_reentry
+                )
+
+                if not drc_revalidation_ok:
+                    logger.info(
+                        f"[DRC V3] BLOQUEADO REVALIDAÇÃO {pair} | "
+                        f"duration={last_duration}s | mqii={mqii_state} | "
+                        f"vol={volume_ratio:.2f} min_vol={dynamic_min_volume:.2f} | "
+                        f"rsi={rsi:.2f} max_rsi={max_rsi_reentry:.2f} | "
+                        f"spread={ema_spread:.6f} min_spread={dynamic_min_spread:.6f}"
+                    )
+                    return None
+
+                logger.info(
+                    f"[DRC V3] REVALIDAÇÃO APROVADA {pair} | "
+                    f"duration={last_duration}s | mqii={mqii_state} | "
+                    f"vol={volume_ratio:.2f} min_vol={dynamic_min_volume:.2f} | "
+                    f"rsi={rsi:.2f} | spread={ema_spread:.6f}"
+                )
+
             reentry_allowed = (
                 float(snapshot.ema_fast) > float(snapshot.ema_slow)
                 and float(snapshot.volume_ratio) >= 1.2

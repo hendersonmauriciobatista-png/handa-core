@@ -60,6 +60,9 @@ class MockExecutor:
         else:
             print("[PERSISTENCE] PostgreSQL indisponível")
 
+        # pair -> dados da posição
+        self.positions = {}
+
         # tenta carregar estado salvo
         loaded = self._load_state()
 
@@ -68,9 +71,6 @@ class MockExecutor:
             print(
                 "[MOCK STATE] nenhum estado anterior encontrado, usando saldo inicial"
             )
-
-        # pair -> dados da posição
-        self.positions = {}
 
         print("MockExecutor iniciado")
 

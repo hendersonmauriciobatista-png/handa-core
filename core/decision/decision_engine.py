@@ -286,13 +286,37 @@ class DecisionEngine:
 
         approved, reasons, confidence = self._check_momentum_buy(snapshot, policy)
 
+        # 🔥 EXECUTION STABILITY GATE + TCE PATCH
+        # Trend Continuation Entry — RSI alto contextual
         # ======================================================
-        # 🔥 EXECUTION STABILITY GATE (ANTI-STAGNATION)
-        # ======================================================
+        market_state_raw = (
+            str(getattr(snapshot, "market_state", "") or "").strip().upper()
+        )
+        trend_raw = str(getattr(snapshot, "trend", "") or "").strip().upper()
+        momentum_raw = str(getattr(snapshot, "momentum", "") or "").strip().upper()
+        mqii_state = ""
 
-        stability_ok = (
+        try:
+            mqii = getattr(self, "mqii_quality", None)
+            if isinstance(mqii, dict):
+                mqii_state = str(mqii.get("state", "") or "").strip().upper()
+        except Exception:
+            mqii_state = ""
+
+        normal_stability_ok = (
             float(snapshot.volume_ratio) >= 1.15 and 50 <= float(snapshot.rsi) <= 62
         )
+
+        tce_stability_ok = (
+            trend_raw.endswith("UPTREND")
+            and momentum_raw.endswith("BULLISH")
+            and market_state_raw == "BULLISH_STRONG"
+            and float(snapshot.volume_ratio) >= 2.0
+            and 62 < float(snapshot.rsi) <= 75
+            and mqii_state != "NO_TRADE"
+        )
+
+        stability_ok = normal_stability_ok or tce_stability_ok
 
         if approved and not stability_ok:
             logger.info(
@@ -300,6 +324,14 @@ class DecisionEngine:
                 f"vol={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f}"
             )
             return None
+
+        if approved and tce_stability_ok:
+            logger.info(
+                f"[TCE PATCH] LIBERADO {pair} | "
+                f"trend={trend_raw} | momentum={momentum_raw} | "
+                f"state={market_state_raw} | vol={snapshot.volume_ratio:.2f} | "
+                f"rsi={snapshot.rsi:.2f} | mqii={mqii_state}"
+            )
 
         if not approved:
 

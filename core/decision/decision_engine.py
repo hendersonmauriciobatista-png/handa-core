@@ -286,6 +286,21 @@ class DecisionEngine:
 
         approved, reasons, confidence = self._check_momentum_buy(snapshot, policy)
 
+        # ======================================================
+        # 🔥 EXECUTION STABILITY GATE (ANTI-STAGNATION)
+        # ======================================================
+
+        stability_ok = (
+            float(snapshot.volume_ratio) >= 1.15 and 50 <= float(snapshot.rsi) <= 62
+        )
+
+        if approved and not stability_ok:
+            logger.info(
+                f"[STABILITY GATE] BLOQUEADO {pair} | "
+                f"vol={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f}"
+            )
+            return None
+
         if not approved:
 
             # ==========================================================

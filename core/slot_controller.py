@@ -1556,6 +1556,24 @@ class SlotController:
                 return
 
             # =====================================================
+            # 🔥 DRC — CAPTURA DURAÇÃO ANTES DE FECHAR A POSIÇÃO
+            # =====================================================
+            exit_ts = time.time()
+            duration_seconds = 0.0
+
+            try:
+                if self.position_manager:
+                    pos = self.position_manager.get_position(symbol=slot.pair)
+                    if pos and hasattr(pos, "opened_at") and pos.opened_at:
+                        duration_seconds = max(
+                            0.0,
+                            time.time() - pos.opened_at.timestamp(),
+                        )
+            except Exception as e:
+                print(f"[DRC DURATION ERROR] {slot.pair} | erro={e}")
+                duration_seconds = 0.0
+
+            # =====================================================
             # 🔥 SINCRONIZA COM POSITION MANAGER (OBRIGATÓRIO)
             # =====================================================
             if self.position_manager:
@@ -1567,19 +1585,6 @@ class SlotController:
                     )
                 except Exception as e:
                     print(f"[POSITION MANAGER CLOSE ERROR] {slot.pair} | erro={e}")
-
-            exit_ts = time.time()
-            entry_ts = 0.0
-
-            try:
-                if self.position_manager:
-                    pos = self.position_manager.get_position(symbol=slot.pair)
-                    if pos and hasattr(pos, "opened_at") and pos.opened_at:
-                        entry_ts = float(pos.opened_at)
-            except Exception:
-                entry_ts = 0.0
-
-            duration_seconds = max(0.0, exit_ts - entry_ts) if entry_ts > 0 else 0.0
 
             trade = {
                 "pair": result.pair,

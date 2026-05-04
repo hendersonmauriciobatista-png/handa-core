@@ -314,7 +314,10 @@ class PositionManager:
                 if pnl_pct <= pos.peak_pnl_pct * 0.60:
                     return CloseReason.DYNAMIC_PROFIT_PROTECTION
 
-        elif pos.peak_pnl_pct >= 0.0030:  # trade médio
+        elif pos.peak_pnl_pct >= 0.0030:  # trade médio que devolveu força
+            if pnl_pct <= 0:
+                return CloseReason.DYNAMIC_WEAKNESS
+
             if pnl_pct <= pos.peak_pnl_pct * 0.50:
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
 

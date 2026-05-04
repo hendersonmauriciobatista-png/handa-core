@@ -137,11 +137,9 @@ class PositionManager:
         print("[DEBUG] Notifier criado")
 
         try:
-            print("[DEBUG] Enviando teste Telegram...")
-            self.notifier.send("PositionManager online 🚀")
-            print("[DEBUG] Envio Telegram executado")
+            print("[DEBUG] TelegramNotifier inicializado com sucesso")
         except Exception as e:
-            logger.warning("[TELEGRAM] Falha no teste inicial: %s", e)
+            logger.warning("[TELEGRAM] Falha ao inicializar notifier: %s", e)
             print(f"[DEBUG] Erro Telegram: {e}")
 
         logger.info("[PositionManager] Iniciado (SAFE + DYNAMIC EXIT).")

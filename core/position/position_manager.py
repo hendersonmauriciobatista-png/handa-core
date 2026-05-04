@@ -328,6 +328,11 @@ class PositionManager:
         # =========================
         if pos.peak_pnl_pct >= PROFIT_ARM_LEVEL_1:
 
+            # Se já devolveu tudo e virou negativo,
+            # não é mais proteção de lucro; é fraqueza dinâmica.
+            if pnl_pct <= 0:
+                return CloseReason.DYNAMIC_WEAKNESS
+
             if (
                 pos.peak_pnl_pct >= PROFIT_ARM_LEVEL_3
                 and giveback >= PROFIT_GIVEBACK_LEVEL_3

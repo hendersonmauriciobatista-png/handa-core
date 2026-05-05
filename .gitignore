@@ -37,3 +37,12 @@ Thumbs.db
 
 # Logs (opcional)
 *.log
+# credenciais e estados sensíveis
+core/credentials/
+storage/
+*.env
+*.key
+*.pem
+
+
+

@@ -406,6 +406,60 @@ class SlotController:
                 f"[LEARNING] {symbol} ajustado após WIN | factor={state['factor']:.2f}"
             )
 
+    def _get_dynamic_drc_thresholds(self):
+        """
+        DRC dinâmico v1:
+        Ajusta thresholds de exaustão/lucro bom conforme contexto de mercado,
+        sem depender de alteração manual fixa.
+        """
+
+        exhaustion_pct = self.drc_exhaustion_profit_pct
+        good_profit_pct = self.drc_good_profit_pct
+
+        mqii_state = "UNKNOWN"
+        liquidity_score = 0.0
+
+        try:
+            market_context = getattr(self, "last_market_context", None)
+
+            if isinstance(market_context, dict):
+                mqii_state = str(
+                    market_context.get("mqii_state")
+                    or market_context.get("state")
+                    or "UNKNOWN"
+                ).upper()
+
+                liquidity_score = float(
+                    market_context.get("liquidity_score")
+                    or market_context.get("market_liquidity_score")
+                    or 0.0
+                )
+        except Exception:
+            mqii_state = "UNKNOWN"
+            liquidity_score = 0.0
+
+        if mqii_state in ("NO_TRADE", "FRACO", "WEAK"):
+            exhaustion_pct = 0.0025
+            good_profit_pct = 0.0015
+
+        elif mqii_state in ("CAUTIOUS", "MODERADO", "SIDEWAYS"):
+            exhaustion_pct = 0.0040
+            good_profit_pct = 0.0020
+
+        elif mqii_state in ("TRADE_OK", "FORTE"):
+            exhaustion_pct = 0.0060
+            good_profit_pct = 0.0025
+
+        elif mqii_state in ("AGGRESSIVE_OK", "MUITO_FORTE"):
+            exhaustion_pct = 0.0100
+            good_profit_pct = 0.0040
+
+        if liquidity_score and liquidity_score < 0.50:
+            exhaustion_pct = min(exhaustion_pct, 0.0030)
+            good_profit_pct = min(good_profit_pct, 0.0015)
+
+        return exhaustion_pct, good_profit_pct, mqii_state, liquidity_score
+
     def _register_dynamic_reentry_control(
         self,
         symbol: str,
@@ -425,6 +479,13 @@ class SlotController:
             pnl_pct = 0.0
 
         duration_seconds = max(0.0, float(duration_seconds or 0.0))
+
+        (
+            dynamic_exhaustion_pct,
+            dynamic_good_profit_pct,
+            drc_mqii_state,
+            drc_liquidity_score,
+        ) = self._get_dynamic_drc_thresholds()
 
         # 1) STOP muito rápido = provável erro de timing / virada brusca
         if pnl_usdc < 0 and duration_seconds <= self.drc_fast_stop_seconds:
@@ -453,7 +514,7 @@ class SlotController:
             return
 
         # 3) lucro forte = exaustão, sem reentrada imediata
-        if pnl_usdc > 0 and pnl_pct >= self.drc_exhaustion_profit_pct:
+        if pnl_usdc > 0 and pnl_pct >= dynamic_exhaustion_pct:
             release_ts = self._now_ts() + self.drc_exhaustion_cooldown
             self.pair_cooldowns[symbol] = release_ts
 
@@ -466,7 +527,7 @@ class SlotController:
             return
 
         # 4) lucro bom/saudável = cooldown menor, mas ainda protetivo
-        if pnl_usdc > 0 and pnl_pct >= self.drc_good_profit_pct:
+        if pnl_usdc > 0 and pnl_pct >= dynamic_good_profit_pct:
             release_ts = self._now_ts() + self.drc_good_profit_cooldown
             self.pair_cooldowns[symbol] = release_ts
 

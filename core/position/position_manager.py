@@ -237,6 +237,118 @@ class PositionManager:
     # CORE DINÂMICO
     # ========================================================
 
+    def _get_dynamic_profit_exit_thresholds(self, pos: Position):
+        """
+        PositionManager contextual v1:
+        Ajusta proteção de lucro e estagnação conforme contexto do trade,
+        sem trocar thresholds fixos globais.
+        """
+
+        mqii_state = "UNKNOWN"
+        liquidity_score = 0.0
+
+        try:
+            market_context = getattr(pos, "market_context", None)
+
+            if isinstance(market_context, dict):
+                mqii_state = str(
+                    market_context.get("mqii_state")
+                    or market_context.get("state")
+                    or "UNKNOWN"
+                ).upper()
+
+                liquidity_score = float(
+                    market_context.get("liquidity_score")
+                    or market_context.get("market_liquidity_score")
+                    or 0.0
+                )
+        except Exception:
+            mqii_state = "UNKNOWN"
+            liquidity_score = 0.0
+
+        # defaults atuais
+        premium_arm = 0.0035
+        normal_arm = 0.0025
+        strong_arm = 0.0070
+        medium_arm = 0.0030
+        weak_arm = 0.0015
+
+        premium_keep_factor = 0.60
+        normal_keep_factor = 0.45
+        strong_keep_factor = 0.60
+        medium_keep_factor = 0.50
+
+        weak_floor = 0.0005
+        stagnation_profit_peak = 0.0030
+        stagnation_mid_loss = -0.0015
+
+        if mqii_state in ("NO_TRADE", "FRACO", "WEAK"):
+            premium_arm = 0.0025
+            normal_arm = 0.0015
+            strong_arm = 0.0045
+            medium_arm = 0.0020
+            weak_arm = 0.0010
+            weak_floor = 0.0002
+            stagnation_profit_peak = 0.0020
+            stagnation_mid_loss = -0.0010
+
+        elif mqii_state in ("CAUTIOUS", "MODERADO", "SIDEWAYS"):
+            premium_arm = 0.0030
+            normal_arm = 0.0020
+            strong_arm = 0.0055
+            medium_arm = 0.0025
+            weak_arm = 0.0012
+            weak_floor = 0.0003
+            stagnation_profit_peak = 0.0025
+            stagnation_mid_loss = -0.0012
+
+        elif mqii_state in ("TRADE_OK", "FORTE"):
+            premium_arm = 0.0035
+            normal_arm = 0.0025
+            strong_arm = 0.0070
+            medium_arm = 0.0030
+            weak_arm = 0.0015
+            weak_floor = 0.0005
+            stagnation_profit_peak = 0.0030
+            stagnation_mid_loss = -0.0015
+
+        elif mqii_state in ("AGGRESSIVE_OK", "MUITO_FORTE"):
+            premium_arm = 0.0045
+            normal_arm = 0.0030
+            strong_arm = 0.0090
+            medium_arm = 0.0040
+            weak_arm = 0.0020
+            weak_floor = 0.0007
+            stagnation_profit_peak = 0.0040
+            stagnation_mid_loss = -0.0020
+
+        if liquidity_score and liquidity_score < 0.50:
+            premium_arm = min(premium_arm, 0.0025)
+            normal_arm = min(normal_arm, 0.0015)
+            strong_arm = min(strong_arm, 0.0045)
+            medium_arm = min(medium_arm, 0.0020)
+            weak_arm = min(weak_arm, 0.0010)
+            weak_floor = min(weak_floor, 0.0002)
+            stagnation_profit_peak = min(stagnation_profit_peak, 0.0020)
+            stagnation_mid_loss = max(stagnation_mid_loss, -0.0010)
+
+        return {
+            "mqii_state": mqii_state,
+            "liquidity_score": liquidity_score,
+            "premium_arm": premium_arm,
+            "normal_arm": normal_arm,
+            "strong_arm": strong_arm,
+            "medium_arm": medium_arm,
+            "weak_arm": weak_arm,
+            "premium_keep_factor": premium_keep_factor,
+            "normal_keep_factor": normal_keep_factor,
+            "strong_keep_factor": strong_keep_factor,
+            "medium_keep_factor": medium_keep_factor,
+            "weak_floor": weak_floor,
+            "stagnation_profit_peak": stagnation_profit_peak,
+            "stagnation_mid_loss": stagnation_mid_loss,
+        }
+
     def _evaluate_dynamic_exit(self, pos: Position, price: float):
 
         pnl_pct = (price - pos.entry_price) / pos.entry_price
@@ -246,6 +358,8 @@ class PositionManager:
 
         giveback = pos.peak_pnl_pct - pnl_pct
 
+        dynamic_exit = self._get_dynamic_profit_exit_thresholds(pos)
+
         # ========================================================
         # 🔥 MPP-P — MICRO PROFIT PROTECTION (PREMIUM ONLY)
         # ========================================================
@@ -253,10 +367,13 @@ class PositionManager:
             if getattr(pos, "is_premium_override", False):
 
                 # lucro mínimo atingido
-                if pos.peak_pnl_pct >= 0.0035:  # ~0.35%
+                if pos.peak_pnl_pct >= dynamic_exit["premium_arm"]:
 
                     # perdeu força (começou a devolver)
-                    if pnl_pct <= pos.peak_pnl_pct * 0.60:
+                    if (
+                        pnl_pct
+                        <= pos.peak_pnl_pct * dynamic_exit["premium_keep_factor"]
+                    ):
 
                         # evita sair cedo demais
                         if pos.cycles_in_trade >= MIN_HOLD_CYCLES:
@@ -272,10 +389,14 @@ class PositionManager:
             if not getattr(pos, "is_premium_override", False):
 
                 # Setup normal que já mostrou lucro inicial relevante
-                if pos.peak_pnl_pct >= 0.0025:  # ~0.25%
+                if pos.peak_pnl_pct >= dynamic_exit["normal_arm"]:
 
                     # Protege antes de virar negativo
-                    if pnl_pct > 0 and pnl_pct <= pos.peak_pnl_pct * 0.45:
+                    if (
+                        pnl_pct > 0
+                        and pnl_pct
+                        <= pos.peak_pnl_pct * dynamic_exit["normal_keep_factor"]
+                    ):
 
                         if pos.cycles_in_trade >= MIN_HOLD_CYCLES:
                             return CloseReason.DYNAMIC_PROFIT_PROTECTION
@@ -308,19 +429,19 @@ class PositionManager:
         # 🔥 BREAK-EVEN DINÂMICO — H&A (ANTI-RUÍDO + MAX PROFIT)
         # ========================================================
         if pnl_pct > 0:  # 🔥 NOVO: só protege lucro real
-            if pos.peak_pnl_pct >= 0.0070:  # trade forte
-                if pnl_pct <= pos.peak_pnl_pct * 0.60:
+            if pos.peak_pnl_pct >= dynamic_exit["strong_arm"]:
+                if pnl_pct <= pos.peak_pnl_pct * dynamic_exit["strong_keep_factor"]:
                     return CloseReason.DYNAMIC_PROFIT_PROTECTION
 
-        elif pos.peak_pnl_pct >= 0.0030:  # trade médio que devolveu força
+        elif pos.peak_pnl_pct >= dynamic_exit["medium_arm"]:
             if pnl_pct <= 0:
                 return CloseReason.DYNAMIC_WEAKNESS
 
-            if pnl_pct <= pos.peak_pnl_pct * 0.50:
+            if pnl_pct <= pos.peak_pnl_pct * dynamic_exit["medium_keep_factor"]:
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
 
-        elif pos.peak_pnl_pct >= 0.0015:  # trade fraco
-            if pnl_pct <= 0.0005:
+        elif pos.peak_pnl_pct >= dynamic_exit["weak_arm"]:
+            if pnl_pct <= dynamic_exit["weak_floor"]:
                 return CloseReason.DYNAMIC_PROFIT_PROTECTION
 
         # =========================
@@ -360,9 +481,9 @@ class PositionManager:
         # ========================================================
         # 🔥 STAGNATION DINÂMICA — H&A PATCH
         # ========================================================
-        if pos.peak_pnl_pct >= 0.0030:
+        if pos.peak_pnl_pct >= dynamic_exit["stagnation_profit_peak"]:
             min_cycles_for_stagnation = max(MIN_HOLD_CYCLES + 25, 55)
-        elif pnl_pct > -0.0015:
+        elif pnl_pct > dynamic_exit["stagnation_mid_loss"]:
             min_cycles_for_stagnation = max(MIN_HOLD_CYCLES + 20, 45)
         else:
             min_cycles_for_stagnation = max(MIN_HOLD_CYCLES + 10, 30)

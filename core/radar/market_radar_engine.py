@@ -632,6 +632,38 @@ class MarketRadarEngine:
                 market_state = self._safe_upper(analysis.get("market_state"))
                 momentum_state = self._safe_upper(analysis.get("momentum"))
 
+                # ======================================================
+                # 🔥 MCE V3.3 — PREMIUM INSTITUTIONAL CONTEXT
+                # Liberação contextual controlada para setup forte
+                # ======================================================
+                selection_score = self._to_float(
+                    adjusted_item.get("selection_score", 0.0),
+                    default=0.0,
+                )
+
+                volume_state = self._safe_upper(analysis.get("volume"))
+                trend_state = self._safe_upper(analysis.get("trend"))
+
+                premium_institutional_context = (
+                    mqii_state in ("TRADE_OK", "AGGRESSIVE_OK")
+                    and liquidity_score >= 0.80
+                    and selection_score >= 0.80
+                    and trend_state in ("UPTREND", "STRONG_UPTREND")
+                    and momentum_state == "BULLISH"
+                    and volume_state == "HIGH"
+                )
+
+                if premium_institutional_context:
+                    print(
+                        f"[MCE V3.3] {symbol} LIBERADO CONTEXTUAL | "
+                        f"selection_score={selection_score:.2f} | "
+                        f"mqii={mqii_state} | liq={liquidity_score:.2f} | "
+                        f"trend={trend_state} | momentum={momentum_state} | "
+                        f"volume={volume_state}"
+                    )
+
+                    adjusted_item["mce_weak"] = False
+
                 # 🔒 BLOQUEIO DIRETO — CONTEXTO FRACO
                 if market_state == "SIDEWAYS" or momentum_state == "NEUTRAL":
                     print(

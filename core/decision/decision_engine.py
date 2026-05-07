@@ -1546,12 +1546,19 @@ class DecisionEngine:
                     )
 
                     if not strong_confirmation:
+                        rejection_reason = (
+                            "DECISION_BLOCK_MQII_CAUTIOUS_WEAK_CONFIRMATION"
+                        )
+
                         logger.info(
-                            f"[MQII FILTER] BLOQUEADO (CAUTIOUS) | {symbol} | "
+                            f"[DECISION INTEL] {symbol} | "
+                            f"reason={rejection_reason} | "
+                            f"mqii={mqii_state} | mqii_score={mqii_score:.3f} | "
                             f"trend={trend_raw} | momentum={momentum_raw} | "
                             f"vol={volume_ratio:.2f} | conf={confidence:.3f}"
                         )
-                        return False, ["MQII_CAUTION_BLOCK"], 0.0
+
+                        return False, [rejection_reason], 0.0
 
         except Exception as e:
             logger.warning(f"[MQII FILTER ERROR] {e}")

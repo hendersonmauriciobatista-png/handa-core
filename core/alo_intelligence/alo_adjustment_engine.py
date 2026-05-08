@@ -140,13 +140,10 @@ class ALODynamicAdjustmentEngine:
         # ==========================================================
         try:
             is_sideways = (
-                technical.market_state == "SIDEWAYS"
-                or technical.trend == "SIDEWAYS"
+                technical.market_state == "SIDEWAYS" or technical.trend == "SIDEWAYS"
             )
 
-            weak_structure = (
-                technical.selection_score < 0.60
-            )
+            weak_structure = technical.selection_score < 0.60
 
             suspicious_volume = (
                 technical.volume_ratio >= 1.4
@@ -161,7 +158,6 @@ class ALODynamicAdjustmentEngine:
 
         except Exception:
             pass
-
 
         # ---------------------------------------------------------------------
         # CONFIDENCE LEVEL
@@ -200,7 +196,10 @@ class ALODynamicAdjustmentEngine:
         # ---------------------------------------------------------------------
         # RANKING / RISK BIAS
         # ---------------------------------------------------------------------
-        if profile.confidence_level in {ConfidenceLevel.VERY_HIGH, ConfidenceLevel.HIGH}:
+        if profile.confidence_level in {
+            ConfidenceLevel.VERY_HIGH,
+            ConfidenceLevel.HIGH,
+        }:
             profile.ranking_bias = RankingBias.BOOST
             profile.risk_bias = RiskBias.OPPORTUNITY_FAVORABLE
         elif profile.confidence_level == ConfidenceLevel.MEDIUM:
@@ -231,11 +230,23 @@ class ALODynamicAdjustmentEngine:
             profile.guidance = GuidanceType.HARD_BLOCK
         elif reentry_state == ReentryState.TEMP_BLOCK:
             profile.guidance = GuidanceType.TEMPORARY_BLOCK
-        elif profile.confidence_level in {ConfidenceLevel.VERY_LOW, ConfidenceLevel.LOW}:
+        elif profile.confidence_level in {
+            ConfidenceLevel.VERY_LOW,
+            ConfidenceLevel.LOW,
+        }:
             profile.guidance = GuidanceType.REQUIRE_STRONGER_CONFIRMATION
+        elif reentry_state == ReentryState.TEMP_BLOCK:
+            profile.guidance = GuidanceType.REQUIRE_STRONGER_CONFIRMATION
+
+        elif reentry_state == ReentryState.RESTRICTED:
+            profile.guidance = GuidanceType.REQUIRE_STRONGER_CONFIRMATION
+
         elif reentry_state == ReentryState.CAUTION:
             profile.guidance = GuidanceType.ALLOW_WITH_CAUTION
-        elif profile.confidence_level in {ConfidenceLevel.HIGH, ConfidenceLevel.VERY_HIGH}:
+        elif profile.confidence_level in {
+            ConfidenceLevel.HIGH,
+            ConfidenceLevel.VERY_HIGH,
+        }:
             profile.guidance = GuidanceType.ALLOW
         else:
             profile.guidance = GuidanceType.ALLOW_WITH_CAUTION

@@ -858,7 +858,15 @@ class SlotController:
         pairs_in_use = {
             self._normalize_symbol(slot.pair)
             for slot in self._slots.values()
-            if slot.pair and slot.state in ("ANALYZING", "READY", "RUNNING")
+            if slot.pair
+            and slot.state
+            in (
+                "ANALYZING",
+                "READY",
+                "BUYING",
+                "RUNNING",
+                "TRADING",
+            )
         }
 
         attempted_symbols = set()
@@ -1496,6 +1504,35 @@ class SlotController:
             # ========================================================
             # REVALIDAÇÃO FINAL ANTI-REENTRADA / ANTI-RACE CONDITION
             # ========================================================
+
+            # ========================================================
+            # BLOQUEIO DE DUPLICIDADE SIMULTÂNEA
+            # ========================================================
+            active_same_pair = any(
+                s.slot_id != slot.slot_id
+                and s.pair
+                and self._normalize_symbol(s.pair) == self._normalize_symbol(slot.pair)
+                and s.state
+                in (
+                    "ANALYZING",
+                    "READY",
+                    "BUYING",
+                    "RUNNING",
+                    "TRADING",
+                )
+                for s in self._slots.values()
+            )
+
+            if active_same_pair:
+                print(
+                    f"[DUPLICATE BLOCK] {slot.pair} já possui posição ativa "
+                    f"— nova entrada bloqueada"
+                )
+
+                slot.pending_buy_signal = None
+                slot.reset()
+                return
+
             if self._is_pair_blocked(slot.pair):
                 print(
                     f"[SLOT {slot.slot_id}] BUY CANCELADO NO GATE FINAL: "

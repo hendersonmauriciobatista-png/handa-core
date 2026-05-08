@@ -131,9 +131,7 @@ class MomentumConfirmationEngine:
             # ======================================================
 
             price_change = (
-                (price - candidate.reference_price)
-                / candidate.reference_price
-                * 100
+                (price - candidate.reference_price) / candidate.reference_price * 100
             )
 
             volume_ok = (
@@ -141,10 +139,34 @@ class MomentumConfirmationEngine:
                 >= candidate.reference_volume_ratio * MCE_MIN_VOLUME_RETENTION
             )
 
-            # 🔥 NOVO: exigir retenção mínima de progresso (evita spike fake)
-            progress_ratio = price / candidate.reference_price if candidate.reference_price > 0 else 1.0
+            # 🔥 MCE V3.2 — PROGRESSO DINÂMICO CONTEXTUAL
+            # Ajusta a sensibilidade conforme momentum, volume e RSI.
+            # Objetivo: reduzir overfilter sem liberar entrada fraca.
 
-            progress_ok = progress_ratio >= 1.001  # mínimo de continuidade real (~0.1%)
+            progress_ratio = (
+                price / candidate.reference_price
+                if candidate.reference_price > 0
+                else 1.0
+            )
+
+            dynamic_progress_min = 1.001  # padrão conservador (~0.10%)
+
+            if momentum == "BULLISH":
+                dynamic_progress_min = 1.0003  # bullish confirma com menor avanço
+
+            elif momentum == "NEUTRAL" and volume_ratio >= 2.0 and 40 <= rsi <= 58:
+                dynamic_progress_min = 1.0004  # neutral premium
+
+            elif momentum == "NEUTRAL" and volume_ratio >= 1.2 and 42 <= rsi <= 55:
+                dynamic_progress_min = 1.0006  # neutral aceitável
+
+            progress_ok = progress_ratio >= dynamic_progress_min
+
+            print(
+                f"[MCE V3.2] {symbol} progresso dinâmico | "
+                f"ratio={progress_ratio:.6f} | min={dynamic_progress_min:.6f} | "
+                f"momentum={momentum} | vol={volume_ratio:.3f} | rsi={rsi:.2f}"
+            )
 
             # 🔥 NOVO: impedir perda de força (volume caindo demais)
             volume_drop = volume_ratio < (candidate.reference_volume_ratio * 0.7)

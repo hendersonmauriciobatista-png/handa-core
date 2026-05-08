@@ -81,6 +81,8 @@ class AutoLoop:
                         ALOMode,
                         TechnicalContext,
                         MacroMarketContext,
+                        MemoryContext,
+                        TemporalContext,
                     )
 
                     if not hasattr(self, "_alo_intelligent"):
@@ -173,10 +175,44 @@ class AutoLoop:
                                 total_assets=market_context.get("total_assets", 40),
                             )
 
+                            # ======================================================
+                            # 🔥 CONTEXTO DE MEMÓRIA / DRC
+                            # ======================================================
+
+                            pair = str(top.get("symbol", "UNKNOWN")).upper()
+
+                            last_symbol = str(
+                                getattr(self.slot_controller, "last_traded_symbol", "")
+                            ).upper()
+
+                            last_was_loss = getattr(
+                                self.slot_controller,
+                                "last_trade_was_loss",
+                                False,
+                            )
+
+                            same_symbol_recent_failures = 0
+                            fast_stop_flag = False
+
+                            if pair == last_symbol and last_was_loss:
+                                same_symbol_recent_failures = 1
+                                fast_stop_flag = True
+
+                            memory = MemoryContext(
+                                same_symbol_recent_failures=same_symbol_recent_failures,
+                                fast_stop_flag=fast_stop_flag,
+                            )
+
+                            temporal = TemporalContext(
+                                minutes_since_last_failure=0 if fast_stop_flag else None
+                            )
+
                             guidance = self._alo_intelligent.evaluate(
-                                symbol=top.get("symbol", "UNKNOWN"),
+                                symbol=pair,
                                 technical=technical,
                                 macro=macro,
+                                memory=memory,
+                                temporal=temporal,
                             )
 
                             print(f"[ALO INTEL] {guidance.explainability_text}")

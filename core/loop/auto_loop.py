@@ -131,7 +131,59 @@ class AutoLoop:
                             )
 
                         if available_slots > 0:
-                            selected_ops = opportunities[:available_slots]
+                            # ======================================================
+                            # 🔒 SYMBOL DUPLICATION PROTECTION
+                            # ======================================================
+
+                            active_symbols = set()
+
+                            # posições já abertas
+                            try:
+                                if hasattr(self.position_manager, "_positions"):
+                                    active_symbols.update(
+                                        str(sym).upper()
+                                        for sym in self.position_manager._positions.keys()
+                                    )
+                            except Exception:
+                                pass
+
+                            # slots já ocupados/analisando
+                            try:
+                                for s in slots.values():
+
+                                    slot_symbol = str(getattr(s, "symbol", "")).upper()
+
+                                    slot_state = str(getattr(s, "state", "")).upper()
+
+                                    if slot_symbol and slot_state in (
+                                        "ANALYZING",
+                                        "READY",
+                                        "RUNNING",
+                                    ):
+                                        active_symbols.add(slot_symbol)
+
+                            except Exception:
+                                pass
+
+                            filtered_ops = []
+
+                            for op in opportunities:
+
+                                symbol = str(op.get("symbol", "")).upper()
+
+                                if symbol in active_symbols:
+
+                                    print(
+                                        f"[SYMBOL LOCK] {symbol} bloqueado "
+                                        f"(duplicidade operacional)"
+                                    )
+
+                                    continue
+
+                                active_symbols.add(symbol)
+                                filtered_ops.append(op)
+
+                            selected_ops = filtered_ops[:available_slots]
 
                     if opportunities:
 

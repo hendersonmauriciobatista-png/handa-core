@@ -1258,11 +1258,27 @@ class DecisionEngine:
             )
             return False, reasons, 0.0
 
-        if rsi > float(policy.max_rsi) + 3.0:
+        # ======================================================
+        # 🔥 RSI CONTEXTUAL DINÂMICO — CONTINUAÇÃO FORTE
+        # ======================================================
+
+        rsi_max_ext = float(policy.max_rsi) + 3.0
+
+        strong_continuation_context = (
+            ema_fast > ema_slow
+            and volume_ratio >= 1.35
+            and ema_spread >= pre_min_spread
+        )
+
+        if strong_continuation_context:
+            rsi_max_ext += 3.0  # permite continuação até faixa ~71/72
+
+        if rsi > rsi_max_ext:
             reasons.append(f"PRE: RSI excessivo ({rsi:.2f})")
             logger.info(
                 f"[PRE-MOVEMENT] BLOQUEADO | {symbol} | "
-                f"rsi={rsi:.2f} | max_ext={float(policy.max_rsi) + 3.0:.2f}"
+                f"rsi={rsi:.2f} | max_ext={rsi_max_ext:.2f} | "
+                f"contextual={strong_continuation_context}"
             )
             return False, reasons, 0.0
 

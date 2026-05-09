@@ -1207,7 +1207,21 @@ class SlotController:
                     attempted_symbols.add(symbol)
 
                 if signal:
+
+                    # ======================================================
+                    # 🔒 PROTEÇÃO ABSOLUTA CONTRA DUPLICIDADE
+                    # ======================================================
+
+                    if symbol in pairs_in_use:
+
+                        print(f"[SYMBOL LOCK] {symbol} " f"bloqueado (já em uso)")
+
+                        continue
+
+                    pairs_in_use.add(symbol)
+
                     print(f"[SLOT DEBUG] CANDIDATO APROVADO: {symbol}")
+
                     approved_candidates.append((symbol, signal))
                 else:
 

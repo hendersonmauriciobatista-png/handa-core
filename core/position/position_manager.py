@@ -699,6 +699,53 @@ class PositionManager:
                 self.decision_engine.last_traded_symbol = symbol_name
                 self.decision_engine.last_trade_time = datetime.utcnow().timestamp()
                 self.decision_engine.last_trade_duration = duration_seconds
+
+                # ======================================================
+                # 🔥 CLASSIFICAÇÃO INTELIGENTE DO RESULTADO OPERACIONAL
+                # ======================================================
+
+                failure_type = "NONE"
+
+                reason_str = str(
+                    reason.value if hasattr(reason, "value") else reason
+                ).upper()
+
+                if net_usdc < 0:
+
+                    if "STOP_LOSS" in reason_str:
+
+                        if duration_seconds <= 15:
+                            failure_type = "FAST_FAILURE"
+                        else:
+                            failure_type = "WEAK_CONTINUATION"
+
+                    elif "DYNAMIC_STAGNATION" in reason_str:
+                        failure_type = "STAGNATION"
+
+                    elif "DYNAMIC_PROFIT_PROTECTION" in reason_str:
+                        failure_type = "WEAK_CONTINUATION"
+
+                    else:
+                        failure_type = "GENERIC_LOSS"
+
+                else:
+
+                    if "TAKE_PROFIT" in reason_str:
+                        failure_type = "HEALTHY_EXIT"
+
+                    elif "DYNAMIC_PROFIT_PROTECTION" in reason_str:
+                        failure_type = "HEALTHY_EXIT"
+
+                self.decision_engine.last_trade_failure_type = failure_type
+
+                logger.info(
+                    f"[DRC FAILURE CLASSIFIER] "
+                    f"{symbol_name} | "
+                    f"type={failure_type} | "
+                    f"reason={reason_str} | "
+                    f"duration={duration_seconds}s"
+                )
+
         except Exception as e:
             logger.warning(f"[Decision Sync] erro ao registrar último trade: {e}")
 

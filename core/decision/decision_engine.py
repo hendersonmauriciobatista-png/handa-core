@@ -1221,7 +1221,7 @@ class DecisionEngine:
             pre_min_rsi = max(float(policy.min_rsi) - 4.0, 44.0)
 
         elif regime in ("TRADE_OK", "MODERATE", "MODERADO"):
-            pre_min_spread = max(float(policy.min_ema_spread) * 0.70, 0.00015)
+            pre_min_spread = max(float(policy.min_ema_spread) * 0.55, 0.00012)
             pre_min_volume = max(float(policy.min_volume_ratio) * 0.80, 0.90)
             pre_min_rsi = max(float(policy.min_rsi) - 3.0, 45.0)
 

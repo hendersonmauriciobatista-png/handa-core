@@ -699,6 +699,9 @@ class PositionManager:
                 self.decision_engine.last_traded_symbol = symbol_name
                 self.decision_engine.last_trade_time = datetime.utcnow().timestamp()
                 self.decision_engine.last_trade_duration = duration_seconds
+                self.decision_engine.last_trade_reason = str(
+                    reason.value if hasattr(reason, "value") else reason
+                ).upper()
 
                 # ======================================================
                 # 🔥 CLASSIFICAÇÃO INTELIGENTE DO RESULTADO OPERACIONAL

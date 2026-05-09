@@ -105,6 +105,7 @@ class DecisionEngine:
         self.last_trade_time = 0
         self.last_trade_was_loss = False
         self.last_trade_duration = 9999
+        self.last_trade_reason = ""
 
         logger.info("[DecisionEngine] BUY ONLY + Dynamic Policy FULL inicializado")
 

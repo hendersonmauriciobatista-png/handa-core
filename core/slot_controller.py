@@ -64,6 +64,10 @@ class SlotController:
 
         self._cycle_counter = 0
 
+        # LOCK GLOBAL DE EXECUÇÃO POR SÍMBOLO
+        # Evita duplicidade entre READY → BUY → RUNNING
+        self.symbol_execution_lock = set()
+
         # COOLDOWN / REINCIDÊNCIA POR PAR (BASEADO EM TEMPO / LOSS REAL)
         self.pair_cooldowns = {}
         self.pair_loss_streak = {}
@@ -1218,11 +1222,25 @@ class SlotController:
 
                         continue
 
+                    # ======================================================
+                    # LOCK GLOBAL DE EXECUÇÃO (ANTI-DUPLICIDADE)
+                    # ======================================================
+
+                    if symbol in self.symbol_execution_lock:
+
+                        print(f"[EXECUTION LOCK] {symbol} já está travado")
+                        continue
+
+                    self.symbol_execution_lock.add(symbol)
+
                     pairs_in_use.add(symbol)
+
+                    print(f"[EXECUTION LOCK] {symbol} travado globalmente")
 
                     print(f"[SLOT DEBUG] CANDIDATO APROVADO: {symbol}")
 
                     approved_candidates.append((symbol, signal))
+
                 else:
 
                     try:
@@ -1609,6 +1627,7 @@ class SlotController:
                 except Exception as e:
                     print(f"[LC1E EXECUTION ERROR] {slot.pair} | erro={e}")
 
+                self.symbol_execution_lock.discard(slot.pair)
                 slot.pending_buy_signal = None
                 slot.reset()
                 return
@@ -1635,6 +1654,9 @@ class SlotController:
 
         except Exception as e:
             print(f"[SLOT {slot.slot_id}] BUY ERROR: {e}")
+
+            self.symbol_execution_lock.discard(slot.pair)
+
             if slot.pair:
                 self._block_rejected_symbol(slot.pair, cycles=3)
             slot.pending_buy_signal = None
@@ -1769,6 +1791,8 @@ class SlotController:
                 )
             except Exception as e:
                 print(f"[TELEGRAM SELL ERROR] {e}")
+
+            self.symbol_execution_lock.discard(slot.pair)
 
             slot.pending_buy_signal = None
             slot._state = "DONE"

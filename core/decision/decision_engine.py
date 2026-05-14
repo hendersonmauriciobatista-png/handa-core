@@ -1620,7 +1620,15 @@ class DecisionEngine:
                         and confidence >= 0.70
                     )
 
-                    if not strong_confirmation:
+                    premium_override = (
+                        trend_raw.endswith("UPTREND")
+                        and momentum_raw.endswith("BULLISH")
+                        and volume_ratio >= 1.80
+                        and confidence >= 0.80
+                        and 52 <= rsi <= 72
+                    )
+
+                    if not strong_confirmation and not premium_override:
                         rejection_reason = (
                             "DECISION_BLOCK_MQII_CAUTIOUS_WEAK_CONFIRMATION"
                         )

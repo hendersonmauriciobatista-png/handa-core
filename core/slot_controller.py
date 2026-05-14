@@ -1231,11 +1231,21 @@ class SlotController:
                         print(f"[EXECUTION LOCK] {symbol} já está travado")
                         continue
 
+                    # ======================================================
+                    # 🔒 RESERVA IMEDIATA ABSOLUTA DO SÍMBOLO
+                    # ======================================================
+
                     self.symbol_execution_lock.add(symbol)
 
+                    # 🔥 NOVO
+                    attempted_symbols.add(symbol)
+
+                    # 🔥 NOVO
                     pairs_in_use.add(symbol)
 
                     print(f"[EXECUTION LOCK] {symbol} travado globalmente")
+
+                    self.symbol_execution_lock.add(symbol)
 
                     print(f"[SLOT DEBUG] CANDIDATO APROVADO: {symbol}")
 

@@ -361,6 +361,64 @@ class DecisionEngine:
 
         approved, reasons, confidence = self._check_momentum_buy(snapshot, policy)
 
+        # ==========================================================
+        # 🔥 ALO CONTEXTUAL BIAS (FASE 3)
+        # ==========================================================
+        alo_dynamic_min_confidence = 0.0
+
+        if self.alo is not None:
+            try:
+                profile = self.alo.get_symbol_profile(pair)
+
+                if profile is not None:
+
+                    alo_status = str(getattr(profile, "status", "")).strip().upper()
+
+                    alo_conf = float(getattr(profile, "confidence_score", 0.0))
+
+                    total_events = int(getattr(profile, "total_events", 0) or 0)
+
+                    if total_events >= 10:
+
+                        if alo_status in ("BLOCKED", "REJECTED"):
+                            alo_dynamic_min_confidence = 0.82
+
+                        elif alo_status in ("LEARNING", "MEDIUM_CONFIDENCE"):
+                            alo_dynamic_min_confidence = 0.74
+
+                        elif alo_status == "APPROVED":
+                            if alo_conf >= 0.85:
+                                alo_dynamic_min_confidence = 0.62
+                            elif alo_conf >= 0.70:
+                                alo_dynamic_min_confidence = 0.68
+                            else:
+                                alo_dynamic_min_confidence = 0.72
+
+                        if approved and confidence < alo_dynamic_min_confidence:
+
+                            logger.info(
+                                f"[ALO CONTEXTUAL BIAS] BLOQUEADO {pair} | "
+                                f"conf={confidence:.3f} | "
+                                f"min_required={alo_dynamic_min_confidence:.3f} | "
+                                f"alo_status={alo_status} | "
+                                f"alo_conf={alo_conf:.2f}"
+                            )
+
+                            return False
+
+                        if approved:
+
+                            logger.info(
+                                f"[ALO CONTEXTUAL BIAS] APROVADO {pair} | "
+                                f"conf={confidence:.3f} | "
+                                f"min_required={alo_dynamic_min_confidence:.3f} | "
+                                f"alo_status={alo_status} | "
+                                f"alo_conf={alo_conf:.2f}"
+                            )
+
+            except Exception as e:
+                logger.warning(f"[ALO CONTEXTUAL BIAS ERROR] {e}")
+
         # 🔥 EXECUTION STABILITY GATE + TCE PATCH
         # Trend Continuation Entry — RSI alto contextual
         # ======================================================

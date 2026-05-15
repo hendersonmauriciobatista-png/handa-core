@@ -297,6 +297,14 @@ class MarketRadarEngine:
             return False
 
         penalty = self.penalty_map.get(symbol, 0)
+
+        # =========================================================
+        # 🔥 H&A PATCH — RADAR OPERATIONAL AWARENESS
+        # LOSS recente → perde prioridade contextual temporária
+        # =========================================================
+        if symbol in self.trade_cooldowns:
+            penalty += 2
+
         if penalty >= self.max_penalty_allowed:
             return False
 

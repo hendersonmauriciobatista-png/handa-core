@@ -645,8 +645,15 @@ class MarketRadarEngine:
                 trend_state = self._safe_upper(analysis.get("trend"))
 
                 premium_institutional_context = (
-                    mqii_state in ("TRADE_OK", "AGGRESSIVE_OK")
-                    and liquidity_score >= 0.80
+                    (
+                        mqii_state in ("TRADE_OK", "AGGRESSIVE_OK")
+                        or (
+                            mqii_state == "CAUTIOUS"
+                            and liquidity_score >= 0.75
+                            and selection_score >= 0.82
+                        )
+                    )
+                    and liquidity_score >= 0.75
                     and selection_score >= 0.80
                     and trend_state in ("UPTREND", "STRONG_UPTREND")
                     and momentum_state == "BULLISH"

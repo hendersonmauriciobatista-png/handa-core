@@ -791,6 +791,51 @@ class SlotController:
         slot.reset()
 
     # ========================================================
+    # CLEANUP CENTRALIZADO SELL FAILURE
+    # ========================================================
+
+    def _cleanup_failed_sell(
+        self,
+        slot,
+        symbol: str,
+        release_lock: bool = False,
+    ):
+        """
+        Single Source of Truth para falhas de SELL.
+
+        Responsável por:
+        - registrar falha de SELL
+        - preservar posição para nova tentativa
+        - NÃO resetar slot por padrão
+        - NÃO liberar lock por padrão
+
+        Importante:
+        SELL falhado significa que a posição pode continuar aberta.
+        Portanto, o comportamento seguro é manter slot RUNNING.
+        """
+
+        try:
+            symbol = self._normalize_symbol(symbol)
+
+            print(
+                f"[SELL CLEANUP] falha tratada | "
+                f"slot={slot.slot_id} | "
+                f"symbol={symbol} | "
+                f"release_lock={release_lock}"
+            )
+
+            if release_lock:
+                self.symbol_execution_lock.discard(symbol)
+
+        except Exception as e:
+            print(f"[SELL CLEANUP ERROR] {symbol} | erro={e}")
+
+        slot.pending_buy_signal = None
+
+        if slot.pair:
+            slot._state = "RUNNING"
+
+    # ========================================================
     # MQII GATE
     # ========================================================
 
@@ -1888,6 +1933,13 @@ class SlotController:
 
             if not result:
                 print(f"[SLOT {slot.slot_id}] SELL FAILED")
+
+                self._cleanup_failed_sell(
+                    slot=slot,
+                    symbol=slot.pair,
+                    release_lock=False,
+                )
+
                 return
 
             # =====================================================

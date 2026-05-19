@@ -122,7 +122,7 @@ class SelectionDynamicPolicy:
             # Mercado forte exige menos; mercado fraco exige mais.
             # ======================================================
 
-            contextual_min_score = 0.72
+            contextual_min_score = 0.66
 
             if mqii_state == "TRADE_OK":
                 contextual_min_score -= 0.05

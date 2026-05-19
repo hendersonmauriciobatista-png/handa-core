@@ -140,7 +140,7 @@ class SelectionDynamicPolicy:
                 contextual_min_score -= 0.03
 
             elif approved_count == 0:
-                contextual_min_score += 0.05
+                contextual_min_score += 0.02
 
             if uptrend_count >= 15:
                 contextual_min_score -= 0.02

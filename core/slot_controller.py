@@ -168,10 +168,22 @@ class SlotController:
     # HELPERS
     # ========================================================
 
-    def _slot_has_live_position(self, slot) -> bool:
-        if not self.position_manager or not slot.pair:
+    def _has_authoritative_position(self, symbol: str) -> bool:
+        """
+        Source of Truth operacional:
+        PositionManager é a autoridade oficial para existência de posição.
+        """
+        if not self.position_manager or not symbol:
             return False
-        return self.position_manager.has_position(symbol=slot.pair)
+
+        symbol = self._normalize_symbol(symbol)
+        return self.position_manager.has_position(symbol=symbol)
+
+    def _slot_has_live_position(self, slot) -> bool:
+        if not slot.pair:
+            return False
+
+        return self._has_authoritative_position(slot.pair)
 
     def _sync_slot_from_position(self, slot):
         if not self.position_manager or not slot.pair:
@@ -702,6 +714,41 @@ class SlotController:
                             f"pair={pair}"
                         )
 
+                        # ====================================================
+                        # RECONCILIADOR ATIVO SAFE MODE
+                        # ====================================================
+                        # PM é a autoridade oficial.
+                        # Se o slot está RUNNING mas o PM não possui posição,
+                        # o slot não tem posição autoritativa.
+                        #
+                        # Ação segura:
+                        # - liberar lock do símbolo
+                        # - limpar pending signal
+                        # - marcar slot como DONE
+                        #
+                        # NÃO executa SELL.
+                        # NÃO fecha posição.
+                        # NÃO altera executor.positions.
+                        # ====================================================
+
+                        try:
+                            self.symbol_execution_lock.discard(pair)
+                            slot.pending_buy_signal = None
+                            slot._state = "DONE"
+
+                            print(
+                                f"[RECONCILE] RUNNING sem PM corrigido | "
+                                f"slot={slot.slot_id} | "
+                                f"pair={pair}"
+                            )
+
+                        except Exception as e:
+                            print(
+                                f"[RECONCILE ERROR] RUNNING sem PM | "
+                                f"slot={slot.slot_id} | "
+                                f"pair={pair} | erro={e}"
+                            )
+
                 # ================================================
                 # RUNNING sem EXECUTOR
                 # ================================================
@@ -726,6 +773,21 @@ class SlotController:
 
                     print(f"[AUDIT] PM sem SLOT | pair={pair}")
 
+                    # ================================================
+                    # RECONCILIADOR SAFE MODE
+                    # ================================================
+                    # Existe posição autoritativa no PM,
+                    # mas nenhum slot representa essa posição.
+                    #
+                    # Ainda NÃO cria slot automaticamente.
+                    # Apenas marca inconsistência crítica.
+                    # ================================================
+
+                    print(
+                        f"[RECONCILE WARNING] posição autoritativa órfã | "
+                        f"pair={pair}"
+                    )
+
             # ====================================================
             # EXECUTOR sem SLOT
             # ====================================================
@@ -735,6 +797,21 @@ class SlotController:
                 if pair not in slot_symbols:
 
                     print(f"[AUDIT] EXECUTOR sem SLOT | pair={pair}")
+
+                    # ================================================
+                    # POSIÇÃO FANTASMA OPERACIONAL
+                    # ================================================
+                    # Executor acredita possuir posição,
+                    # mas nenhum slot representa essa operação.
+                    #
+                    # Isso é potencialmente crítico.
+                    # Ainda NÃO reconciliamos automaticamente.
+                    # ================================================
+
+                    print(
+                        f"[RECONCILE CRITICAL] executor posição fantasma | "
+                        f"pair={pair}"
+                    )
 
             # ====================================================
             # LOCK ÓRFÃO
@@ -834,6 +911,40 @@ class SlotController:
 
         if slot.pair:
             slot._state = "RUNNING"
+
+    # ========================================================
+    # CLEANUP CENTRALIZADO SELL SUCCESS
+    # ========================================================
+
+    def _cleanup_successful_sell(
+        self,
+        slot,
+        symbol: str,
+    ):
+        """
+        Single Source of Truth para SELL bem-sucedido.
+
+        Responsável por:
+        - liberar execution lock
+        - limpar pending signal
+        - resetar slot operacional
+        - finalizar ciclo do slot
+        """
+
+        try:
+            symbol = self._normalize_symbol(symbol)
+
+            self.symbol_execution_lock.discard(symbol)
+
+            print(
+                f"[SELL CLEANUP SUCCESS] " f"slot={slot.slot_id} | " f"symbol={symbol}"
+            )
+
+        except Exception as e:
+            print(f"[SELL SUCCESS CLEANUP ERROR] {symbol} | erro={e}")
+
+        slot.pending_buy_signal = None
+        slot._state = "DONE"
 
     # ========================================================
     # MQII GATE
@@ -2045,10 +2156,10 @@ class SlotController:
             except Exception as e:
                 print(f"[TELEGRAM SELL ERROR] {e}")
 
-            self.symbol_execution_lock.discard(slot.pair)
-
-            slot.pending_buy_signal = None
-            slot._state = "DONE"
+                self._cleanup_successful_sell(
+                    slot=slot,
+                    symbol=slot.pair,
+                )
 
         except Exception as e:
             print(f"[SLOT {slot.slot_id}] SELL ERROR: {e}")

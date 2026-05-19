@@ -1,24 +1,26 @@
+import threading
 import time
 
 from core.slot_controller import SlotController
-from core.auto_loop import AutoLoop
+from core.loop.auto_loop import AutoLoop
 
 
 def test_autoloop_executes_decision_cycle():
 
     controller = SlotController(slot_ids=[1], cooldown=0.1)
-    controller.start_all()
 
-    loop = AutoLoop(controller, interval=0.1)
-    loop.start()
+    loop = AutoLoop(
+        slot_controller=controller,
+        interval_seconds=0.1,
+    )
 
-    # roda por 1 segundo
-    time.sleep(1)
+    thread = threading.Thread(target=loop.start, daemon=True)
+    thread.start()
+
+    time.sleep(0.3)
 
     loop.stop()
+    thread.join(timeout=1)
 
-    # Verifica se o slot saiu de IDLE pelo menos uma vez
-    snapshot = controller.snapshot_all()
-    state = snapshot[1]["slot_state"]
-
-    assert state in ("RUNNING", "DONE", "IDLE")
+    assert loop.cycle >= 1
+    assert loop.running is False

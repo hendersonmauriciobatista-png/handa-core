@@ -597,6 +597,7 @@ class SlotController:
         )
 
     def _unblock_rejected_symbol(self, symbol: str):
+
         symbol = self._normalize_symbol(symbol)
 
         if symbol in self.rejected_symbols_cooldown:
@@ -606,6 +607,188 @@ class SlotController:
     def _is_rejected_symbol_blocked(self, symbol: str) -> bool:
         symbol = self._normalize_symbol(symbol)
         return self.rejected_symbols_cooldown.get(symbol, 0) > 0
+
+    # ========================================================
+    # AUDITORIA INSTITUCIONAL PASSIVA
+    # ========================================================
+
+    def _audit_operational_consistency(self):
+        """
+        Auditor passivo institucional.
+
+        NÃO altera comportamento operacional.
+        Apenas detecta desalinhamentos entre:
+
+        - Slot.state
+        - PositionManager
+        - symbol_execution_lock
+        - Executor.positions
+
+        Objetivo:
+        - detectar lock órfão
+        - RUNNING sem PM
+        - PM sem slot
+        - posição fantasma
+        - divergência estrutural
+        """
+
+        try:
+
+            # ====================================================
+            # SNAPSHOT BASE
+            # ====================================================
+
+            pm_symbols = set()
+            executor_symbols = set()
+            slot_symbols = set()
+
+            # ----------------------------------------------------
+            # POSITION MANAGER
+            # ----------------------------------------------------
+
+            try:
+                if self.position_manager:
+
+                    positions = getattr(
+                        self.position_manager,
+                        "_positions",
+                        {},
+                    )
+
+                    pm_symbols = {
+                        self._normalize_symbol(sym) for sym in positions.keys()
+                    }
+
+            except Exception as e:
+                print(f"[AUDIT PM ERROR] {e}")
+
+            # ----------------------------------------------------
+            # EXECUTOR
+            # ----------------------------------------------------
+
+            try:
+                if self.executor and hasattr(self.executor, "positions"):
+
+                    executor_symbols = {
+                        self._normalize_symbol(sym)
+                        for sym in self.executor.positions.keys()
+                    }
+
+            except Exception as e:
+                print(f"[AUDIT EXECUTOR ERROR] {e}")
+
+            # ----------------------------------------------------
+            # SLOTS
+            # ----------------------------------------------------
+
+            for slot in self._slots.values():
+
+                pair = self._normalize_symbol(slot.pair) if slot.pair else None
+
+                if pair:
+                    slot_symbols.add(pair)
+
+                # ================================================
+                # RUNNING sem PM
+                # ================================================
+
+                if slot.state == "RUNNING":
+
+                    if pair and pair not in pm_symbols:
+
+                        print(
+                            f"[AUDIT] RUNNING sem PM | "
+                            f"slot={slot.slot_id} | "
+                            f"pair={pair}"
+                        )
+
+                # ================================================
+                # RUNNING sem EXECUTOR
+                # ================================================
+
+                if slot.state == "RUNNING":
+
+                    if pair and pair not in executor_symbols:
+
+                        print(
+                            f"[AUDIT] RUNNING sem EXECUTOR | "
+                            f"slot={slot.slot_id} | "
+                            f"pair={pair}"
+                        )
+
+            # ====================================================
+            # PM sem SLOT
+            # ====================================================
+
+            for pair in pm_symbols:
+
+                if pair not in slot_symbols:
+
+                    print(f"[AUDIT] PM sem SLOT | pair={pair}")
+
+            # ====================================================
+            # EXECUTOR sem SLOT
+            # ====================================================
+
+            for pair in executor_symbols:
+
+                if pair not in slot_symbols:
+
+                    print(f"[AUDIT] EXECUTOR sem SLOT | pair={pair}")
+
+            # ====================================================
+            # LOCK ÓRFÃO
+            # ====================================================
+
+            for pair in self.symbol_execution_lock:
+
+                if (
+                    pair not in slot_symbols
+                    and pair not in pm_symbols
+                    and pair not in executor_symbols
+                ):
+
+                    print(f"[AUDIT] LOCK ÓRFÃO | pair={pair}")
+
+        except Exception as e:
+            print(f"[AUDIT ERROR] {e}")
+
+    # ========================================================
+    # CLEANUP CENTRALIZADO BUY FAILURE
+    # ========================================================
+
+    def _cleanup_failed_buy(
+        self,
+        slot,
+        symbol: str,
+        rejection_cycles: int = 1,
+    ):
+        """
+        Single Source of Truth para falhas de BUY.
+
+        Responsável por:
+        - liberar execution lock
+        - aplicar rejection cooldown
+        - limpar pending signal
+        - resetar slot
+        """
+
+        try:
+            symbol = self._normalize_symbol(symbol)
+
+            self.symbol_execution_lock.discard(symbol)
+
+            if rejection_cycles > 0:
+                self._block_rejected_symbol(
+                    symbol,
+                    cycles=rejection_cycles,
+                )
+
+        except Exception as e:
+            print(f"[BUY CLEANUP ERROR] {symbol} | erro={e}")
+
+        slot.pending_buy_signal = None
+        slot.reset()
 
     # ========================================================
     # MQII GATE
@@ -822,6 +1005,7 @@ class SlotController:
 
         self._cycle_counter += 1
         self._start_new_cycle()
+        self._audit_operational_consistency()
 
         # ==========================================================
         # 🔒 GLOBAL COOLDOWN DE ENTRADA (ANTI-FLOOD)
@@ -1604,7 +1788,6 @@ class SlotController:
             print(f"[SLOT {slot.slot_id}] BUY RESULT: {result}")
 
             if not result:
-                self._block_rejected_symbol(slot.pair, cycles=1)
                 print(f"[SLOT {slot.slot_id}] BUY FALHOU NA EXECUÇÃO: {slot.pair}")
 
                 # ==========================================
@@ -1629,17 +1812,22 @@ class SlotController:
                             summary="BUY_FAILED_EXECUTION",
                         )
                         self.lc1_adapter.record_event(event)
+
                         if hasattr(self, "alo") and self.alo:
                             try:
                                 self.alo.ingest_event(event)
                             except Exception as e:
                                 print(f"[ALO INGEST ERROR] {e}")
+
                 except Exception as e:
                     print(f"[LC1E EXECUTION ERROR] {slot.pair} | erro={e}")
 
-                self.symbol_execution_lock.discard(slot.pair)
-                slot.pending_buy_signal = None
-                slot.reset()
+                self._cleanup_failed_buy(
+                    slot=slot,
+                    symbol=slot.pair,
+                    rejection_cycles=1,
+                )
+
                 return
 
             slot.entry_price = result.entry_price
@@ -1665,12 +1853,15 @@ class SlotController:
         except Exception as e:
             print(f"[SLOT {slot.slot_id}] BUY ERROR: {e}")
 
-            self.symbol_execution_lock.discard(slot.pair)
-
             if slot.pair:
-                self._block_rejected_symbol(slot.pair, cycles=3)
-            slot.pending_buy_signal = None
-            slot.reset()
+                self._cleanup_failed_buy(
+                    slot=slot,
+                    symbol=slot.pair,
+                    rejection_cycles=3,
+                )
+            else:
+                slot.pending_buy_signal = None
+                slot.reset()
 
     # ========================================================
     # EXECUÇÃO SELL

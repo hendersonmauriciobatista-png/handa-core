@@ -276,8 +276,28 @@ class SelectionPolicyEngine:
                     allow_premium = True
 
                 elif mqii_state == "CAUTIOUS":
-                    if avg_volume_ratio >= 1.0 and approved_count >= 2:
-                        allow_premium = True
+
+                    # ======================================================
+                    # 🔥 CIE-X PATCH — PREMIUM RECOVERY CONTEXTUAL
+                    # ======================================================
+                    # Mercado moderado não deve congelar totalmente
+                    # setups premium reais.
+                    #
+                    # Objetivo:
+                    # - evitar loop fechado de approved_count
+                    # - permitir recuperação controlada
+                    # - preservar proteção institucional
+                    # ======================================================
+
+                    if avg_volume_ratio >= 1.0:
+
+                        # Mercado já saudável
+                        if approved_count >= 2:
+                            allow_premium = True
+
+                        # 🔥 recuperação contextual controlada
+                        elif score >= 0.85 and volume >= 1.5 and trend == "UPTREND":
+                            allow_premium = True
 
                 if allow_premium:
                     premium_override = True

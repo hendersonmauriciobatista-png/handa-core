@@ -149,7 +149,7 @@ class MomentumConfirmationEngine:
                 else 1.0
             )
 
-            dynamic_progress_min = 1.0008  # padrão conservador (~0.10%)
+            dynamic_progress_min = 1.00035  # padrão conservador (~0.10%)
 
             if momentum == "BULLISH":
                 dynamic_progress_min = 1.00015  # bullish confirma com menor avanço
@@ -157,9 +157,8 @@ class MomentumConfirmationEngine:
             elif momentum == "NEUTRAL" and volume_ratio >= 2.0 and 40 <= rsi <= 58:
                 dynamic_progress_min = 1.00015  # neutral premium
 
-            elif momentum == "NEUTRAL" and volume_ratio >= 1.2 and 42 <= rsi <= 55:
-                dynamic_progress_min = 1.00035  # neutral aceitável
-
+            elif momentum == "NEUTRAL" and volume_ratio >= 0.9 and 42 <= rsi <= 58:
+                dynamic_progress_min = 1.00020
             progress_ok = progress_ratio >= dynamic_progress_min
 
             print(

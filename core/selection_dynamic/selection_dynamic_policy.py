@@ -180,12 +180,35 @@ class SelectionDynamicPolicy:
             else:
                 min_volume = 1.2
 
+            # ======================================================
+            # 🔥 CIE-X PATCH — DYNAMIC NEUTRAL RECOVERY
+            # ======================================================
+            # Objetivo:
+            # evitar congelamento operacional em mercado moderado.
+            #
+            # Filosofia:
+            # - mercado saudável → pode exigir mais
+            # - mercado moderado → precisa recuperar fluxo
+            # - mercado ruim → continua protegido
+            # ======================================================
+
             if approved_count >= 5:
-                min_score = 0.58
+                min_score = 0.56
+
             elif approved_count >= 3:
-                min_score = 0.60
+                min_score = 0.58
+
             else:
-                min_score = 0.62
+
+                # 🔥 recuperação contextual controlada
+                if (
+                    mqii_state == "CAUTIOUS"
+                    and avg_volume_ratio >= 0.60
+                    and uptrend_count >= 6
+                ):
+                    min_score = 0.56
+                else:
+                    min_score = 0.60
 
             min_rsi = 40.0
             max_rsi = 62.0 if mqii_state == "CAUTIOUS" else 65.0

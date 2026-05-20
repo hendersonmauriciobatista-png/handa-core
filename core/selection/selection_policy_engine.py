@@ -688,6 +688,9 @@ class SelectionPolicyEngine:
         if 1.5 <= volume_ratio < 3.0:
             return 0.15
 
+        elif 3.0 <= volume_ratio < 4.0:
+            return 0.10
+
         # =========================================
         # Volume aceitável / saudável
         # =========================================

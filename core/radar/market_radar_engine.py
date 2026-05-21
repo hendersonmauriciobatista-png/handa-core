@@ -1008,6 +1008,77 @@ class MarketRadarEngine:
                         ),
                     }
 
+                # =========================================================
+                # MACRO LEADERS INDEX — FASE 1 PASSIVA
+                # BTC/ETH/BNB como sensores macro, sem veto operacional
+                # =========================================================
+                try:
+                    macro_symbols = {"BTCUSDC", "ETHUSDC", "BNBUSDC"}
+                    macro_items = []
+
+                    for item in raw_ranking:
+                        symbol = str(item.get("symbol", "")).upper()
+
+                        if symbol not in macro_symbols:
+                            continue
+
+                        analysis = item.get("analysis", {}) or {}
+                        snapshot = item.get("snapshot", None)
+
+                        trend = str(analysis.get("trend", "")).upper()
+                        momentum = str(analysis.get("momentum", "")).upper()
+                        market_state = str(analysis.get("market_state", "")).upper()
+
+                        volume_ratio = 0.0
+                        if snapshot is not None:
+                            volume_ratio = float(
+                                getattr(snapshot, "volume_ratio", 0.0) or 0.0
+                            )
+
+                        macro_items.append(
+                            {
+                                "symbol": symbol,
+                                "trend": trend,
+                                "momentum": momentum,
+                                "market_state": market_state,
+                                "volume_ratio": round(volume_ratio, 4),
+                            }
+                        )
+
+                    macro_total = len(macro_items)
+                    macro_bullish = sum(
+                        1
+                        for item in macro_items
+                        if item["trend"] == "UPTREND" and item["momentum"] == "BULLISH"
+                    )
+
+                    macro_alignment = (
+                        round(macro_bullish / macro_total, 4)
+                        if macro_total > 0
+                        else 0.0
+                    )
+
+                    if macro_alignment >= 0.67:
+                        macro_state = "MACRO_CONFIRMED"
+                    elif macro_alignment >= 0.34:
+                        macro_state = "MACRO_PARTIAL"
+                    else:
+                        macro_state = "MACRO_WEAK"
+
+                    macro_index_snapshot = {
+                        "symbols": macro_items,
+                        "macro_alignment": macro_alignment,
+                        "macro_state": macro_state,
+                        "mode": "PASSIVE_OBSERVER",
+                    }
+
+                    print("[MACRO INDEX]", macro_index_snapshot)
+
+                except Exception as e:
+                    print(
+                        f"[MACRO INDEX ERROR] erro ao calcular índice macro | erro={e}"
+                    )
+
                 print("[MARKET LIQUIDITY]", liquidity_data)
                 print("[MQII]", mqii_snapshot)
 

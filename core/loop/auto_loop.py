@@ -137,15 +137,29 @@ class AutoLoop:
 
                             active_symbols = set()
 
-                            # posições já abertas
+                            # posições realmente abertas/ativas no PositionManager
                             try:
-                                if hasattr(self.position_manager, "_positions"):
-                                    active_symbols.update(
-                                        str(sym).upper()
-                                        for sym in self.position_manager._positions.keys()
-                                    )
-                            except Exception:
-                                pass
+                                if hasattr(
+                                    self.position_manager, "get_active_positions"
+                                ):
+                                    for (
+                                        pos
+                                    ) in self.position_manager.get_active_positions():
+                                        pos_symbol = str(
+                                            getattr(pos, "symbol", "")
+                                        ).upper()
+                                        pos_pair = str(getattr(pos, "pair", "")).upper()
+
+                                        if pos_symbol:
+                                            active_symbols.add(pos_symbol)
+
+                                        if pos_pair:
+                                            active_symbols.add(pos_pair)
+
+                            except Exception as e:
+                                print(
+                                    f"[SYMBOL LOCK AUDIT] falha ao ler posições ativas | erro={e}"
+                                )
 
                             # slots já ocupados/analisando
                             try:

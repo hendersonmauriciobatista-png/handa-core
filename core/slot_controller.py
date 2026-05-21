@@ -1064,6 +1064,9 @@ class SlotController:
         symbol = self._normalize_symbol(opportunity.get("symbol", ""))
 
         snapshot_obj = opportunity.get("snapshot")
+
+        analysis = opportunity.get("analysis", {}) or {}
+
         if not symbol or snapshot_obj is None:
             return None
 
@@ -1086,6 +1089,11 @@ class SlotController:
             ema_slow=float(getattr(snapshot_obj, "ema_20", 0.0)),
             volume_ratio=float(getattr(snapshot_obj, "volume_ratio", 0.0)),
             atr=float(atr),
+            trend=str(analysis.get("trend", "")),
+            momentum=str(analysis.get("momentum", "")),
+            market_state=str(analysis.get("market_state", "")),
+            volume_state=str(analysis.get("volume", "")),
+            market_score=float(analysis.get("market_score", 0.0) or 0.0),
         )
 
     # ========================================================

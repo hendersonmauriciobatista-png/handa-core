@@ -65,6 +65,11 @@ class MarketSnapshot:
     ema_slow: float
     volume_ratio: float
     atr: float
+    trend: str = ""
+    momentum: str = ""
+    market_state: str = ""
+    volume_state: str = ""
+    market_score: float = 0.0
 
 
 # =============================================================================

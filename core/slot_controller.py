@@ -2164,10 +2164,10 @@ class SlotController:
             except Exception as e:
                 print(f"[TELEGRAM SELL ERROR] {e}")
 
-                self._cleanup_successful_sell(
-                    slot=slot,
-                    symbol=slot.pair,
-                )
+            self._cleanup_successful_sell(
+                slot=slot,
+                symbol=slot.pair,
+            )
 
         except Exception as e:
             print(f"[SLOT {slot.slot_id}] SELL ERROR: {e}")

@@ -139,12 +139,14 @@ class AutoLoop:
 
                             # posições realmente abertas/ativas no PositionManager
                             try:
-                                if hasattr(
-                                    self.position_manager, "get_active_positions"
+                                position_manager = getattr(
+                                    self.slot_controller, "position_manager", None
+                                )
+
+                                if position_manager and hasattr(
+                                    position_manager, "get_active_positions"
                                 ):
-                                    for (
-                                        pos
-                                    ) in self.position_manager.get_active_positions():
+                                    for pos in position_manager.get_active_positions():
                                         pos_symbol = str(
                                             getattr(pos, "symbol", "")
                                         ).upper()

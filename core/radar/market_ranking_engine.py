@@ -617,6 +617,26 @@ class MarketRankingEngine:
                     ):
                         quality_ok = True
 
+                    # QUALITY FILTER RECOVERY:
+                    # market_score pode vir 0.0 em cenário lateral,
+                    # mas liquidez alta + volume forte + RSI saudável
+                    # não devem ser destruídos automaticamente.
+                    elif (
+                        liquidity_score_ctx >= 0.70
+                        and avg_volume_ratio_ctx >= 0.90
+                        and volume_ratio >= 1.00
+                        and 44 <= rsi <= 64
+                    ):
+                        quality_ok = True
+                        print(
+                            f"[QUALITY RECOVERY] {symbol} liberado contextual | "
+                            f"liq={liquidity_score_ctx:.2f} | "
+                            f"avg_vol={avg_volume_ratio_ctx:.2f} | "
+                            f"vol={volume_ratio:.2f} | "
+                            f"rsi={rsi:.2f} | "
+                            f"market_score={market_score:.2f}"
+                        )
+
                 # Caminho C — score técnico forte mesmo sem momentum ideal
                 if (
                     not quality_ok

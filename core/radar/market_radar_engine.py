@@ -664,8 +664,11 @@ class MarketRadarEngine:
                     and liquidity_score >= 0.75
                     and selection_score >= 0.80
                     and trend_state in ("UPTREND", "STRONG_UPTREND")
-                    and momentum_state == "BULLISH"
                     and volume_state == "HIGH"
+                    and (
+                        momentum_state == "BULLISH"
+                        or (momentum_state == "NEUTRAL" and selection_score >= 0.85)
+                    )
                 )
 
                 if premium_institutional_context:
@@ -680,7 +683,9 @@ class MarketRadarEngine:
                     adjusted_item["mce_weak"] = False
 
                 # 🔒 BLOQUEIO DIRETO — CONTEXTO FRACO
-                if market_state == "SIDEWAYS" or momentum_state == "NEUTRAL":
+                if adjusted_item.get("mce_weak", False) and (
+                    market_state == "SIDEWAYS" or momentum_state == "NEUTRAL"
+                ):
                     print(
                         f"[MCE BLOCK] {symbol} bloqueado | "
                         f"state={market_state} | momentum={momentum_state}"

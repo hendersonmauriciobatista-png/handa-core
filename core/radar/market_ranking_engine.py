@@ -624,8 +624,10 @@ class MarketRankingEngine:
                     elif (
                         liquidity_score_ctx >= 0.70
                         and avg_volume_ratio_ctx >= 0.90
-                        and volume_ratio >= 1.00
-                        and 44 <= rsi <= 64
+                        and uptrend_count_ctx >= 7
+                        and (volume_ratio >= 0.85 or volume_state == "HIGH")
+                        and 42 <= rsi <= 66
+                        and market_score >= 0.0
                     ):
                         quality_ok = True
                         print(

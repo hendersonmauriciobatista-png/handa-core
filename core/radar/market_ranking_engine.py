@@ -622,10 +622,10 @@ class MarketRankingEngine:
                     # mas liquidez alta + volume forte + RSI saudável
                     # não devem ser destruídos automaticamente.
                     elif (
-                        liquidity_score_ctx >= 0.70
-                        and avg_volume_ratio_ctx >= 0.90
+                        liquidity_score_ctx >= 0.60
                         and uptrend_count_ctx >= 7
-                        and (volume_ratio >= 0.85 or volume_state == "HIGH")
+                        and (avg_volume_ratio_ctx >= 0.50 or volume_state == "HIGH")
+                        and (volume_ratio >= 0.75 or volume_state == "HIGH")
                         and 42 <= rsi <= 66
                         and market_score >= 0.0
                     ):

@@ -302,9 +302,7 @@ class MarketRankingEngine:
                 # Pump / volume anormal excessivo
                 if volume_ratio >= 4.0:
                     volume_extreme_but_valid = (
-                        trend == "UPTREND"
-                        and momentum == "BULLISH"
-                        and 45 <= rsi <= 68
+                        trend == "UPTREND" and momentum == "BULLISH" and 45 <= rsi <= 68
                     )
 
                     if not volume_extreme_but_valid:
@@ -356,9 +354,7 @@ class MarketRankingEngine:
                     )
 
                     neutral_trend_ok = (
-                        strong_context
-                        or moderate_context
-                        or weak_but_operable_context
+                        strong_context or moderate_context or weak_but_operable_context
                     )
 
                     # ======================================================
@@ -386,17 +382,27 @@ class MarketRankingEngine:
                             dynamic_allow = False
 
                             try:
-                                if hasattr(self, "dynamic_core_adapter") and hasattr(self, "dynamic_core_engine"):
-                                    dynamic_input = self.dynamic_core_adapter.build_input(
-                                        snapshot=analysis,
-                                        profile=None,
-                                        system_ctx=None,
-                                        mqii_data=token.get("market_context"),
+                                if hasattr(self, "dynamic_core_adapter") and hasattr(
+                                    self, "dynamic_core_engine"
+                                ):
+                                    dynamic_input = (
+                                        self.dynamic_core_adapter.build_input(
+                                            snapshot=analysis,
+                                            profile=None,
+                                            system_ctx=None,
+                                            mqii_data=token.get("market_context"),
+                                        )
                                     )
 
-                                    dynamic_result = self.dynamic_core_engine.evaluate(dynamic_input)
+                                    dynamic_result = self.dynamic_core_engine.evaluate(
+                                        dynamic_input
+                                    )
 
-                                    if dynamic_result.dynamic_mode in ("CAUTION", "TRADE_OK", "PREMIUM_OK"):
+                                    if dynamic_result.dynamic_mode in (
+                                        "CAUTION",
+                                        "TRADE_OK",
+                                        "PREMIUM_OK",
+                                    ):
                                         dynamic_allow = True
                                         print(
                                             f"[RADAR DYNAMIC] {symbol} LIBERADO | mode={dynamic_result.dynamic_mode}"
@@ -458,7 +464,6 @@ class MarketRankingEngine:
                 # ------------------------------------------------
                 score = max(min(score, 1.0), 0.0)
 
-                                                         
                 # ======================================================
                 # LEI DO DINAMISMO — SCORE MÍNIMO CONTEXTUAL
                 # ======================================================
@@ -473,6 +478,21 @@ class MarketRankingEngine:
                 )
 
                 dynamic_min_score = 0.30
+
+                # Premium Recovery controlado:
+                # em mercado fraco, não libera geral,
+                # mas permite que setups individuais quase premium
+                # sobrevivam até o filtro final de qualidade.
+                individual_recovery_context = (
+                    liquidity_score_ctx >= 0.40
+                    and momentum == "BULLISH"
+                    and volume_ratio >= 0.90
+                    and 43 <= rsi <= 67
+                    and market_score >= 0.40
+                )
+
+                if individual_recovery_context:
+                    dynamic_min_score = 0.25
 
                 cautiously_operable_context = (
                     uptrend_count_ctx >= 10
@@ -608,7 +628,6 @@ class MarketRankingEngine:
         ranked.sort(key=lambda x: x.get("score", 0), reverse=True)
 
         final_market_snapshot = {
-            
             "avg_volume_ratio": round(avg_volume_ratio_real, 4),
             "uptrend_count": uptrend_count_real,
             "refined_count": refined_count_real,

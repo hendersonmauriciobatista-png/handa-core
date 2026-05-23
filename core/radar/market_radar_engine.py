@@ -375,8 +375,24 @@ class MarketRadarEngine:
                 self._count_radar_rejection("VOLUME_EXTREMO")
                 return False
 
-            if trend_state == "UPTREND" and (42 <= rsi_value <= 65):
+            premium_neutral_context = (
+                trend_state in ("UPTREND", "STRONG_UPTREND")
+                and volume_ratio >= 1.20
+                and 42 <= rsi_value <= 62
+                and market_state not in ("NO_TRADE",)
+            )
+
+            if premium_neutral_context:
+                print(
+                    f"[RADAR PREMIUM NEUTRAL] {symbol} | "
+                    f"volume_ratio={volume_ratio:.2f} | "
+                    f"rsi={rsi_value:.2f} | "
+                    f"market_state={market_state}"
+                )
+
+            elif trend_state == "UPTREND" and (42 <= rsi_value <= 65):
                 pass
+
             else:
                 self._count_radar_rejection("QUALITY_FILTER")
                 return False

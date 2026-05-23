@@ -376,7 +376,13 @@ class MarketRankingEngine:
                         )
 
                         if weak_but_tradeable:
-                            score += 0.10
+                            # Premium Recovery contextual:
+                            # mercado macro ruim pode destruir tendência,
+                            # mas setups fortes locais ainda merecem sobreviver.
+                            if market_score_safe >= 0.40 and volume_ratio >= 0.90:
+                                score += 0.18
+                            else:
+                                score += 0.10
                             print(f"[RANKING PATCH] {symbol} liberado (weak trend)")
                         else:
                             dynamic_allow = False

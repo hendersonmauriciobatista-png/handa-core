@@ -440,7 +440,17 @@ class MarketRankingEngine:
                 if momentum == "BULLISH":
                     score += 0.25
                 elif momentum == "NEUTRAL":
-                    score += 0.0
+
+                    neutral_context_ok = (
+                        volume_ratio >= 0.85
+                        and 44 <= rsi <= 64
+                        and market_score >= 0.35
+                    )
+
+                    if neutral_context_ok:
+                        score += 0.08
+                    else:
+                        score += 0.0
                 else:
                     score += 0.0
 
@@ -474,7 +484,18 @@ class MarketRankingEngine:
                 # MARKET STATE
                 # ------------------------------------------------
                 if market_state == "SIDEWAYS":
-                    score -= 0.15
+
+                    sideways_operable = (
+                        volume_ratio >= 0.90
+                        and momentum in ("BULLISH", "NEUTRAL")
+                        and 44 <= rsi <= 64
+                    )
+
+                    if sideways_operable:
+                        score -= 0.05
+                    else:
+                        score -= 0.15
+
                 elif market_state in {"BULLISH_WEAK", "BULLISH"}:
                     score += 0.05
 

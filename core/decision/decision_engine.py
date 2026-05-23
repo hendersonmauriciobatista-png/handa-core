@@ -194,11 +194,40 @@ class DecisionEngine:
             # ======================================================
             last_was_loss = getattr(self, "last_trade_was_loss", False)
 
+            last_duration = getattr(self, "last_trade_duration", 9999)
+            last_reason = (
+                str(getattr(self, "last_trade_reason", "") or "").strip().upper()
+            )
+
+            exhaustion_mode = (
+                last_was_loss is False
+                and last_duration <= 240
+                and last_reason
+                in (
+                    "DYNAMIC_PROFIT_PROTECTION",
+                    "TRAILING_STOP",
+                    "TAKE_PROFIT",
+                )
+            )
+
             if last_was_loss is False:
+                min_volume_required = 2.0
+                max_rsi_allowed = 64
+
+                if exhaustion_mode:
+                    min_volume_required = 2.8
+                    max_rsi_allowed = 60
+
+                    logger.info(
+                        f"[DRC EXHAUSTION MODE] {pair} | "
+                        f"last_duration={last_duration}s | "
+                        f"last_reason={last_reason}"
+                    )
+
                 post_profit_reentry_allowed = (
                     float(snapshot.ema_fast) > float(snapshot.ema_slow)
-                    and float(snapshot.volume_ratio) >= 2.0
-                    and 50 <= float(snapshot.rsi) <= 64
+                    and float(snapshot.volume_ratio) >= min_volume_required
+                    and 50 <= float(snapshot.rsi) <= max_rsi_allowed
                 )
 
                 if not post_profit_reentry_allowed:

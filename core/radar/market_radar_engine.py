@@ -683,8 +683,17 @@ class MarketRadarEngine:
                     adjusted_item["mce_weak"] = False
 
                 # 🔒 BLOQUEIO DIRETO — CONTEXTO FRACO
-                if adjusted_item.get("mce_weak", False) and (
-                    market_state == "SIDEWAYS" or momentum_state == "NEUTRAL"
+                contextual_mce_survival = (
+                    selection_score >= 0.85
+                    and liquidity_score >= 0.75
+                    and trend_state in ("UPTREND", "STRONG_UPTREND")
+                    and volume_state == "HIGH"
+                )
+
+                if (
+                    adjusted_item.get("mce_weak", False)
+                    and (market_state == "SIDEWAYS" or momentum_state == "NEUTRAL")
+                    and not contextual_mce_survival
                 ):
                     print(
                         f"[MCE BLOCK] {symbol} bloqueado | "

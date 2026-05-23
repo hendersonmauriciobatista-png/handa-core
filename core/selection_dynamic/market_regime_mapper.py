@@ -33,21 +33,26 @@ class MarketRegimeMapper:
         # ======================================================
         # 🔴 DEFENSIVE — mercado ruim / instável
         # ======================================================
-        if (
-            mqii_state in {"NO_TRADE", "FRACO"}
-            or liquidity < 0.45
-            or approved == 0
-        ):
+        if mqii_state in {"NO_TRADE", "FRACO"} or liquidity < 0.45:
+            return SelectionPolicyMode.DEFENSIVE
+
+        # Evita ciclo vicioso:
+        # approved == 0 sozinho não deve forçar DEFENSIVE
+        # quando MQII/liquidez/volume ainda indicam mercado operável.
+        if approved == 0:
+            if (
+                mqii_state in {"TRADE_OK", "FORTE", "AGGRESSIVE_OK", "BULLISH_STRONG"}
+                and liquidity >= 0.55
+                and avg_vol >= 0.9
+            ):
+                return SelectionPolicyMode.BALANCED
+
             return SelectionPolicyMode.DEFENSIVE
 
         # ======================================================
         # 🟡 BALANCED — mercado ok, mas sem força total
         # ======================================================
-        if (
-            mqii_state in {"CAUTIOUS", "MODERADO"}
-            or approved == 1
-            or avg_vol < 0.9
-        ):
+        if mqii_state in {"CAUTIOUS", "MODERADO"} or approved == 1 or avg_vol < 0.9:
             return SelectionPolicyMode.BALANCED
 
         # ======================================================

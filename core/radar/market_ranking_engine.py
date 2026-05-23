@@ -379,10 +379,23 @@ class MarketRankingEngine:
                             # Premium Recovery contextual:
                             # mercado macro ruim pode destruir tendência,
                             # mas setups fortes locais ainda merecem sobreviver.
-                            if market_score_safe >= 0.40 and volume_ratio >= 0.90:
+
+                            # MQII Governor parcial:
+                            # se o mercado global está fraco, mas o ativo individual
+                            # mostra força local real, aumenta a sobrevivência contextual
+                            # sem transformar isso em liberação geral.
+                            if (
+                                market_score_safe >= 0.45
+                                and volume_ratio >= 1.00
+                                and momentum == "BULLISH"
+                                and 44 <= rsi <= 64
+                            ):
+                                score += 0.22
+                            elif market_score_safe >= 0.40 and volume_ratio >= 0.90:
                                 score += 0.18
                             else:
                                 score += 0.10
+
                             print(f"[RANKING PATCH] {symbol} liberado (weak trend)")
                         else:
                             dynamic_allow = False

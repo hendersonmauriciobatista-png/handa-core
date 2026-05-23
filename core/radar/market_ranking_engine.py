@@ -623,11 +623,11 @@ class MarketRankingEngine:
                     # não devem ser destruídos automaticamente.
                     elif (
                         liquidity_score_ctx >= 0.60
-                        and uptrend_count_ctx >= 7
-                        and (avg_volume_ratio_ctx >= 0.50 or volume_state == "HIGH")
-                        and (volume_ratio >= 0.75 or volume_state == "HIGH")
+                        and uptrend_count_ctx >= 10
+                        and volume_state == "HIGH"
+                        and volume_ratio >= 0.75
                         and 42 <= rsi <= 66
-                        and market_score >= 0.0
+                        and (market_score >= 0.0 or avg_volume_ratio_ctx >= 0.50)
                     ):
                         quality_ok = True
                         print(

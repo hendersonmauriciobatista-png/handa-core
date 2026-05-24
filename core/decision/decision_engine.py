@@ -16,6 +16,7 @@ from core.dynamic_policy.lc1_feedback_adapter import LC1FeedbackAdapter
 from core.dynamic_policy.policy_models import MarketContext, SystemContext
 from core.decision.trade_qualifier import TradeQualifier
 from core.alo_decision import AloDecisionLayer, AloDecisionMode
+from core.alo_decision.constitutional_observatory import ALOConstitutionalObservatory
 from core.alo.dynamic_core_adapter import AloDynamicCoreAdapter
 from core.alo.dynamic_core_engine import AloDynamicCoreEngine
 
@@ -98,6 +99,7 @@ class DecisionEngine:
         self.position_manager = None
         self.alo = None
         self.alo_decision = AloDecisionLayer(mode=AloDecisionMode.OBSERVER)
+        self.constitutional_observatory = ALOConstitutionalObservatory()
 
         self.dynamic_core_adapter = AloDynamicCoreAdapter()
         self.dynamic_core_engine = AloDynamicCoreEngine()
@@ -137,8 +139,45 @@ class DecisionEngine:
     def evaluate_buy(self, snapshot: MarketSnapshot) -> Optional[BuySignal]:
 
         if snapshot is None:
-            logger.warning("[Engine] Snapshot inválido")
+            logger.warning("[Engine] Snapshot invÃ¡lido")
             return None
+
+        # ======================================================
+        # ALO CONSTITUTIONAL OBSERVATORY — PASSIVE MODE
+        # ======================================================
+        try:
+            self.constitutional_observatory.observe(
+                mqii_snapshot={
+                    "state": getattr(snapshot, "market_state", ""),
+                    "context_override": False,
+                },
+                selection_snapshot={
+                    "premium_count": (
+                        1
+                        if (
+                            getattr(snapshot, "trend", "") == "UPTREND"
+                            and getattr(snapshot, "momentum", "")
+                            in ("BULLISH", "STRONG")
+                            and float(getattr(snapshot, "volume_ratio", 0.0) or 0.0)
+                            >= 1.0
+                        )
+                        else 0
+                    ),
+                    "blocked_count": 0,
+                    "context_override": False,
+                    "mode": "PASSIVE_DECISION_OBSERVATION",
+                },
+                decision_snapshot={
+                    "risk_flags": 0,
+                    "context_override": False,
+                    "state": "EVALUATING_BUY",
+                },
+                radar_snapshot={
+                    "approved_count": 1,
+                },
+            )
+        except Exception as e:
+            logger.warning(f"[ALO CONSTITUTIONAL] observatory error: {e}")
 
         pair = str(snapshot.pair).strip().upper()
 

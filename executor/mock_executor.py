@@ -221,16 +221,8 @@ class MockExecutor:
             except Exception:
                 pass
 
-        # fecha position manager
-        if self.position_manager:
-            try:
-                self.position_manager.close_position(
-                    pair=pair, exit_price=exit_price, reason=reason
-                )
-            except Exception:
-                pass
-
-        # remove posição
+        # PositionManager é fechado pelo SlotController após SELL executado.
+        # O executor apenas remove sua posição local mock e retorna o resultado.
         del self.positions[pair]
 
         return SimpleNamespace(

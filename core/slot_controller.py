@@ -21,6 +21,20 @@ from core.notifications.telegram_notifier import TelegramNotifier
 
 
 class SlotController:
+    DECISION_OBSERVATION_COOLDOWN_CYCLES = 3
+    DECISION_OBSERVATION_COOLDOWN_REASONS = {
+        "STABILITY_GATE",
+        "FINAL_BUY_REJECTED",
+        "RISK_REJECTION",
+        "RISK_REJECTION_PRE_MOVEMENT",
+        "RISK_REJECTION_OPPORTUNITY",
+        "ALO_CONTEXTUAL_BIAS",
+        "ALO_GATE",
+        "DRC_REVALIDATION",
+        "DRC_POST_PROFIT_REENTRY",
+        "IMMEDIATE_REENTRY",
+        "RECENT_LOSS_REENTRY",
+    }
 
     def __init__(
         self,
@@ -619,6 +633,22 @@ class SlotController:
     def _is_rejected_symbol_blocked(self, symbol: str) -> bool:
         symbol = self._normalize_symbol(symbol)
         return self.rejected_symbols_cooldown.get(symbol, 0) > 0
+
+    def _apply_decision_observation_cooldown(self, symbol: str, reason: str):
+        symbol = self._normalize_symbol(symbol)
+        reason = str(reason or "").strip().upper()
+
+        if reason not in self.DECISION_OBSERVATION_COOLDOWN_REASONS:
+            return
+
+        current = self.rejected_symbols_cooldown.get(symbol, 0)
+        cycles = self.DECISION_OBSERVATION_COOLDOWN_CYCLES
+        self.rejected_symbols_cooldown[symbol] = max(current, cycles)
+
+        print(
+            f"[DECISION OBS COOLDOWN] {symbol} | "
+            f"reason={reason} | cycles={self.rejected_symbols_cooldown[symbol]}"
+        )
 
     # ========================================================
     # AUDITORIA INSTITUCIONAL PASSIVA
@@ -1259,6 +1289,11 @@ class SlotController:
                 if symbol in attempted_symbols:
                     continue
 
+                if self._is_rejected_symbol_blocked(symbol):
+                    print(f"[PICK BLOCK] {symbol} bloqueado por rejection cooldown")
+                    attempted_symbols.add(symbol)
+                    continue
+
                 snapshot = self._build_snapshot_from_opportunity(opportunity)
 
                 if snapshot is None:
@@ -1267,6 +1302,7 @@ class SlotController:
                 signal = None
 
                 if self._decision_engine:
+                    attempted_symbols.add(symbol)
                     signal = self._decision_engine.evaluate_buy(snapshot)
 
                 if not signal:
@@ -1308,6 +1344,11 @@ class SlotController:
                         f"volume_ratio={snapshot.volume_ratio:.4f} | "
                         f"atr={snapshot.atr:.8f}"
                     )
+                    self._apply_decision_observation_cooldown(
+                        symbol,
+                        decision_rejection_reason,
+                    )
+                    attempted_symbols.add(symbol)
 
                 # ==========================================================
                 # ALO GATE v1 (ALO + MQII CONSENSO)

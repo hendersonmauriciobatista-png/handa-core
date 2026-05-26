@@ -1270,8 +1270,37 @@ class SlotController:
                     signal = self._decision_engine.evaluate_buy(snapshot)
 
                 if not signal:
+                    decision_rejection_reason = "UNKNOWN"
+                    decision_rejection_detail = ""
+
+                    if self._decision_engine:
+                        decision_rejection_reason = str(
+                            getattr(
+                                self._decision_engine,
+                                "last_decision_rejection_reason",
+                                "",
+                            )
+                            or "UNKNOWN"
+                        )
+                        decision_rejection_detail = str(
+                            getattr(
+                                self._decision_engine,
+                                "last_decision_rejection_detail",
+                                "",
+                            )
+                            or ""
+                        )
+
+                    decision_rejection_detail_log = (
+                        f" | detail={decision_rejection_detail}"
+                        if decision_rejection_detail
+                        else ""
+                    )
+
                     print(
                         f"[DECISION REJECTION] {symbol} | "
+                        f"reason={decision_rejection_reason}"
+                        f"{decision_rejection_detail_log} | "
                         f"snapshot_price={snapshot.price:.8f} | "
                         f"rsi={snapshot.rsi:.2f} | "
                         f"ema_fast={snapshot.ema_fast:.8f} | "

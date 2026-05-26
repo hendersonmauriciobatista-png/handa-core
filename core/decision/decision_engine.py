@@ -113,8 +113,27 @@ class DecisionEngine:
         self.last_trade_was_loss = False
         self.last_trade_duration = 9999
         self.last_trade_reason = ""
+        self.last_decision_rejection_reason = ""
+        self.last_decision_rejection_detail = ""
 
         logger.info("[DecisionEngine] BUY ONLY + Dynamic Policy FULL inicializado")
+
+    def _reject_buy(self, pair: str, reason: str, detail: str = "", result=None):
+        self.last_decision_rejection_reason = str(reason or "UNKNOWN")
+        self.last_decision_rejection_detail = str(detail or "")
+
+        detail_log = (
+            f" | detail={self.last_decision_rejection_detail}"
+            if self.last_decision_rejection_detail
+            else ""
+        )
+
+        logger.info(
+            f"[DECISION LOCAL REJECTION] {pair} | "
+            f"reason={self.last_decision_rejection_reason}{detail_log}"
+        )
+
+        return result
 
     # -------------------------------------------------------------------------
     # EXTERNAL PROVIDER
@@ -180,6 +199,8 @@ class DecisionEngine:
             logger.warning(f"[ALO CONSTITUTIONAL] observatory error: {e}")
 
         pair = str(snapshot.pair).strip().upper()
+        self.last_decision_rejection_reason = ""
+        self.last_decision_rejection_detail = ""
 
         # ======================================================
         # 🔥 GLOBAL ENTRY COOLDOWN (ANTI-OVERTRADING)
@@ -194,18 +215,22 @@ class DecisionEngine:
                 f"[GLOBAL COOLDOWN] {pair} bloqueado | "
                 f"aguardando {(cooldown_global_seconds - (now - last_time)):.1f}s"
             )
-            return None
+            return self._reject_buy(
+                pair,
+                "GLOBAL_ENTRY_COOLDOWN",
+                f"remaining={cooldown_global_seconds - (now - last_time):.1f}s",
+            )
 
         if not pair:
             logger.warning("[Engine] Pair inválido")
-            return None
+            return self._reject_buy("UNKNOWN", "INVALID_PAIR")
 
         # 0. BLOQUEIO SE JÁ EXISTE POSIÇÃO ATIVA NO PAR
         if self.position_manager is not None:
             try:
                 if self.position_manager.has_position(symbol=pair):
                     logger.info(f"[Engine] BLOQUEADO POR POSIÇÃO JÁ ATIVA: {pair}")
-                    return None
+                    return self._reject_buy(pair, "POSITION_ALREADY_ACTIVE")
             except Exception as e:
                 logger.warning(f"[Engine] erro ao checar posição ativa de {pair}: {e}")
 
@@ -226,7 +251,11 @@ class DecisionEngine:
 
             if now - last_time < cooldown_seconds:
                 logger.info(f"[DRC] BLOQUEADO POR COOLDOWN: {pair}")
-                return None
+                return self._reject_buy(
+                    pair,
+                    "DRC_COOLDOWN",
+                    f"remaining={cooldown_seconds - (now - last_time):.1f}s",
+                )
 
             # ======================================================
             # 🔥 DRC V2 — REENTRADA PÓS-LUCRO CONTROLADA
@@ -274,7 +303,11 @@ class DecisionEngine:
                         f"[DRC V2] BLOQUEADO PÓS-LUCRO: {pair} | "
                         f"vol={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f}"
                     )
-                    return None
+                    return self._reject_buy(
+                        pair,
+                        "DRC_POST_PROFIT_REENTRY",
+                        f"vol={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f}",
+                    )
 
                 logger.info(
                     f"[DRC V2] REENTRADA PÓS-LUCRO PERMITIDA: {pair} | "
@@ -295,7 +328,11 @@ class DecisionEngine:
                     f"[DRC V2] BLOQUEADO POR LOSS RÁPIDO: {pair} | "
                     f"duration={last_duration}s"
                 )
-                return None
+                return self._reject_buy(
+                    pair,
+                    "DRC_FAST_LOSS",
+                    f"duration={last_duration}s",
+                )
 
             # ======================================================
             # 🔥 DRC V3 — REVALIDAÇÃO CONTEXTUAL PÓS-LOSS / STAGNATION
@@ -322,7 +359,11 @@ class DecisionEngine:
                         f"[DRC V3] BLOQUEADO {pair} | motivo=MQII_NO_TRADE | "
                         f"last_duration={last_duration}s"
                     )
-                    return None
+                    return self._reject_buy(
+                        pair,
+                        "DRC_REVALIDATION_MQII_NO_TRADE",
+                        f"duration={last_duration}s",
+                    )
 
                 if mqii_state == "CAUTIOUS":
                     volume_factor = 1.35
@@ -362,7 +403,14 @@ class DecisionEngine:
                         f"rsi={rsi:.2f} max_rsi={max_rsi_reentry:.2f} | "
                         f"spread={ema_spread:.6f} min_spread={dynamic_min_spread:.6f}"
                     )
-                    return None
+                    return self._reject_buy(
+                        pair,
+                        "DRC_REVALIDATION",
+                        f"duration={last_duration}s | mqii={mqii_state} | "
+                        f"vol={volume_ratio:.2f} min_vol={dynamic_min_volume:.2f} | "
+                        f"rsi={rsi:.2f} max_rsi={max_rsi_reentry:.2f} | "
+                        f"spread={ema_spread:.6f} min_spread={dynamic_min_spread:.6f}",
+                    )
 
                 logger.info(
                     f"[DRC V3] REVALIDAÇÃO APROVADA {pair} | "
@@ -382,12 +430,12 @@ class DecisionEngine:
                 logger.info(
                     f"[Engine] BLOQUEADO POR LOSS RECENTE (setup fraco): {pair}"
                 )
-                return None
+                return self._reject_buy(pair, "RECENT_LOSS_REENTRY")
 
             # comportamento original
             if not reentry_allowed:
                 logger.info(f"[Engine] BLOQUEADO POR REENTRADA IMEDIATA: {pair}")
-                return None
+                return self._reject_buy(pair, "IMMEDIATE_REENTRY")
             else:
                 logger.info(
                     f"[Engine] REENTRADA CONTROLADA PERMITIDA: {pair} | "
@@ -407,7 +455,11 @@ class DecisionEngine:
                 logger.info(
                     f"[Engine] BLOQUEADO POR PENALTY: {pair} | penalty={penalty}"
                 )
-                return None
+                return self._reject_buy(
+                    pair,
+                    "PENALTY_REJECTION",
+                    f"penalty={penalty}",
+                )
             else:
                 logger.info(
                     f"[Engine] PENALTY OVERRIDE CONTROLADO: {pair} | "
@@ -477,7 +529,15 @@ class DecisionEngine:
                                 f"alo_conf={alo_conf:.2f}"
                             )
 
-                            return False
+                            return self._reject_buy(
+                                pair,
+                                "ALO_CONTEXTUAL_BIAS",
+                                f"conf={confidence:.3f} | "
+                                f"min_required={alo_dynamic_min_confidence:.3f} | "
+                                f"alo_status={alo_status} | "
+                                f"alo_conf={alo_conf:.2f}",
+                                result=False,
+                            )
 
                         if approved:
 
@@ -529,7 +589,11 @@ class DecisionEngine:
                 f"[STABILITY GATE] BLOQUEADO {pair} | "
                 f"vol={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f}"
             )
-            return None
+            return self._reject_buy(
+                pair,
+                "STABILITY_GATE",
+                f"vol={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f}",
+            )
 
         if approved and tce_stability_ok:
             logger.info(
@@ -582,7 +646,11 @@ class DecisionEngine:
                     logger.warning(
                         f"[Engine] Capital negado (pre-movement) {pair}: {allocation.reason}"
                     )
-                    return None
+                    return self._reject_buy(
+                        pair,
+                        "CAPITAL_REJECTION_PRE_MOVEMENT",
+                        allocation.reason,
+                    )
 
                 # entrada menor para pré-movimento
                 reduced_capital = float(allocation.allocated_usdc) * 0.60
@@ -603,7 +671,11 @@ class DecisionEngine:
                     logger.warning(
                         f"[Engine] Risk negou (pre-movement) {pair}: {risk_eval.reason}"
                     )
-                    return None
+                    return self._reject_buy(
+                        pair,
+                        "RISK_REJECTION_PRE_MOVEMENT",
+                        risk_eval.reason,
+                    )
 
                 signal = BuySignal(
                     pair=pair,
@@ -647,7 +719,11 @@ class DecisionEngine:
                     logger.warning(
                         f"[Engine] Capital negado (opportunity) {pair}: {allocation.reason}"
                     )
-                    return None
+                    return self._reject_buy(
+                        pair,
+                        "CAPITAL_REJECTION_OPPORTUNITY",
+                        allocation.reason,
+                    )
 
                 risk_eval = self.risk.evaluate_entry(
                     pair=pair,
@@ -663,7 +739,11 @@ class DecisionEngine:
                     logger.warning(
                         f"[Engine] Risk negou (opportunity) {pair}: {risk_eval.reason}"
                     )
-                    return None
+                    return self._reject_buy(
+                        pair,
+                        "RISK_REJECTION_OPPORTUNITY",
+                        risk_eval.reason,
+                    )
 
                 signal = BuySignal(
                     pair=pair,
@@ -728,13 +808,17 @@ class DecisionEngine:
                 except Exception as e:
                     logger.warning(f"[ALO INGEST ERROR - NON_EXECUTION] {e}")
 
-            return None
+            return self._reject_buy(
+                pair,
+                "FINAL_BUY_REJECTED",
+                f"regime={debug_info.regime} | motivos={reasons}",
+            )
 
         allocation = self.allocator.request_allocation(pair)
 
         if not allocation.approved:
             logger.warning(f"[Engine] Capital negado {pair}: {allocation.reason}")
-            return None
+            return self._reject_buy(pair, "CAPITAL_REJECTION", allocation.reason)
 
         dynamic_capital = float(allocation.allocated_usdc) * float(
             policy.capital_multiplier
@@ -758,7 +842,14 @@ class DecisionEngine:
                 f"policy_min_rr={policy.min_rr:.2f} | "
                 f"policy_stop={policy.stop_loss_pct:.4%}"
             )
-            return None
+            return self._reject_buy(
+                pair,
+                "RISK_REJECTION",
+                f"{risk_eval.reason} | regime={debug_info.regime} | "
+                f"exp_profit={policy.expected_profit_pct:.4%} | "
+                f"policy_min_rr={policy.min_rr:.2f} | "
+                f"policy_stop={policy.stop_loss_pct:.4%}",
+            )
 
         signal_reasons = list(reasons)
         signal_reasons.append(f"Regime: {debug_info.regime}")
@@ -980,7 +1071,11 @@ class DecisionEngine:
                                     f"[ALO GATE] BLOQUEADO {pair} | "
                                     f"status={alo_status} | conf={alo_confidence:.2f}"
                                 )
-                                return None
+                                return self._reject_buy(
+                                    pair,
+                                    "ALO_GATE",
+                                    f"status={alo_status} | conf={alo_confidence:.2f}",
+                                )
 
                 signal_reasons.append(
                     f"ALO status: {alo_status} | conf={alo_confidence:.2f}"

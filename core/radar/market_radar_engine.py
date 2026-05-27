@@ -403,6 +403,83 @@ class MarketRadarEngine:
 
         return True
 
+    def _is_premium_like_quality_candidate(self, item):
+        if not isinstance(item, dict):
+            return False
+
+        analysis = item.get("analysis") or {}
+        snapshot = item.get("snapshot")
+
+        trend_state = self._safe_upper(analysis.get("trend"))
+        momentum_state = self._safe_upper(analysis.get("momentum"))
+        volume_state = self._safe_upper(analysis.get("volume"))
+        market_state = self._safe_upper(analysis.get("market_state"))
+        mqii_state = self._safe_upper(self.market_quality.get("state", "UNKNOWN"))
+
+        volume_ratio = self._to_float(
+            analysis.get("volume_ratio", getattr(snapshot, "volume_ratio", 0.0)),
+            default=0.0,
+        )
+        rsi_value = self._to_float(
+            analysis.get("rsi", getattr(snapshot, "rsi_14", 0.0)),
+            default=0.0,
+        )
+
+        trend_ok = trend_state in ("UPTREND", "STRONG_UPTREND")
+        rsi_ok = 42.0 <= rsi_value <= 68.0
+        mqii_ok = mqii_state not in ("NO_TRADE", "CRITICAL")
+        volume_ok = volume_state == "HIGH" or volume_ratio >= 1.20
+        bullish_context = momentum_state == "BULLISH" and volume_ratio >= 1.00
+        neutral_context = (
+            momentum_state == "NEUTRAL"
+            and volume_ratio >= 1.20
+            and market_state not in ("NO_TRADE",)
+        )
+
+        return bool(
+            trend_ok
+            and rsi_ok
+            and mqii_ok
+            and volume_ok
+            and (bullish_context or neutral_context)
+        )
+
+    def _log_premium_setup_quality_block(self, item, reason):
+        if not self._is_premium_like_quality_candidate(item):
+            return
+
+        analysis = item.get("analysis") or {}
+        snapshot = item.get("snapshot")
+        symbol = self._safe_symbol(item.get("symbol"))
+
+        volume_ratio = self._to_float(
+            analysis.get("volume_ratio", getattr(snapshot, "volume_ratio", 0.0)),
+            default=0.0,
+        )
+        rsi_value = self._to_float(
+            analysis.get("rsi", getattr(snapshot, "rsi_14", 0.0)),
+            default=0.0,
+        )
+        market_score = self._to_float(
+            analysis.get("market_score", 0), default=0.0
+        )
+        mqii_state = self._safe_upper(self.market_quality.get("state", "UNKNOWN"))
+
+        print(
+            f"[PREMIUM SETUP BLOCK] "
+            f"stage=RADAR_QUALITY | "
+            f"symbol={symbol} | "
+            f"reason={reason} | "
+            f"trend={self._safe_upper(analysis.get('trend'))} | "
+            f"momentum={self._safe_upper(analysis.get('momentum'))} | "
+            f"volume={self._safe_upper(analysis.get('volume'))} | "
+            f"rsi={rsi_value:.2f} | "
+            f"volume_ratio={volume_ratio:.4f} | "
+            f"market_score={market_score:.4f} | "
+            f"mqii_state={mqii_state} | "
+            f"selection_score=None"
+        )
+
     def _apply_penalty_to_item(self, item):
         if not isinstance(item, dict):
             return item
@@ -511,6 +588,10 @@ class MarketRadarEngine:
                     f"momentum={self._safe_upper(analysis.get('momentum'))} | "
                     f"volume={self._safe_upper(analysis.get('volume'))} | "
                     f"market_score={self._to_float(analysis.get('market_score', 0))}"
+                )
+                self._log_premium_setup_quality_block(
+                    item=item,
+                    reason="QUALITY_FILTER_REJECTION",
                 )
 
                 self._record_radar_non_execution(

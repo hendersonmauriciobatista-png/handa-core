@@ -444,7 +444,14 @@ class MarketRadarEngine:
             and (bullish_context or neutral_context)
         )
 
-    def _log_premium_setup_quality_block(self, item, reason):
+    def _log_premium_setup_block(
+        self,
+        item,
+        stage,
+        reason,
+        liquidity_score=None,
+        selection_score=None,
+    ):
         if not self._is_premium_like_quality_candidate(item):
             return
 
@@ -464,10 +471,17 @@ class MarketRadarEngine:
             analysis.get("market_score", 0), default=0.0
         )
         mqii_state = self._safe_upper(self.market_quality.get("state", "UNKNOWN"))
+        liquidity_detail = "None"
+        if liquidity_score is not None:
+            liquidity_detail = f"{self._to_float(liquidity_score, default=0.0):.4f}"
+
+        selection_detail = "None"
+        if selection_score is not None:
+            selection_detail = f"{self._to_float(selection_score, default=0.0):.4f}"
 
         print(
             f"[PREMIUM SETUP BLOCK] "
-            f"stage=RADAR_QUALITY | "
+            f"stage={stage} | "
             f"symbol={symbol} | "
             f"reason={reason} | "
             f"trend={self._safe_upper(analysis.get('trend'))} | "
@@ -477,7 +491,8 @@ class MarketRadarEngine:
             f"volume_ratio={volume_ratio:.4f} | "
             f"market_score={market_score:.4f} | "
             f"mqii_state={mqii_state} | "
-            f"selection_score=None"
+            f"liquidity_score={liquidity_detail} | "
+            f"selection_score={selection_detail}"
         )
 
     def _apply_penalty_to_item(self, item):
@@ -589,8 +604,9 @@ class MarketRadarEngine:
                     f"volume={self._safe_upper(analysis.get('volume'))} | "
                     f"market_score={self._to_float(analysis.get('market_score', 0))}"
                 )
-                self._log_premium_setup_quality_block(
+                self._log_premium_setup_block(
                     item=item,
+                    stage="RADAR_QUALITY",
                     reason="QUALITY_FILTER_REJECTION",
                 )
 
@@ -795,6 +811,13 @@ class MarketRadarEngine:
                     print(
                         f"[MCE BLOCK] {symbol} bloqueado | "
                         f"state={market_state} | momentum={momentum_state}"
+                    )
+                    self._log_premium_setup_block(
+                        item=adjusted_item,
+                        stage="RADAR_MCE",
+                        reason="MCE_WEAK_BLOCKED_CONTEXT",
+                        liquidity_score=liquidity_score,
+                        selection_score=selection_score,
                     )
 
                     self._record_radar_non_execution(

@@ -495,6 +495,56 @@ class MarketRadarEngine:
             f"selection_score={selection_detail}"
         )
 
+    def _log_contextual_semantic_block(
+        self,
+        item,
+        stage,
+        reason,
+        liquidity_score=None,
+        selection_score=None,
+    ):
+        if not self._is_premium_like_quality_candidate(item):
+            return
+
+        analysis = item.get("analysis") or {}
+        symbol = self._safe_symbol(item.get("symbol"))
+
+        selection_value = self._to_float(selection_score, default=0.0)
+        liquidity_value = self._to_float(liquidity_score, default=0.0)
+        selection_delta = 0.85 - selection_value
+        liquidity_delta = 0.75 - liquidity_value
+
+        current_volume = self._safe_upper(analysis.get("volume"))
+        momentum_state = self._safe_upper(analysis.get("momentum"))
+        mqii_state = self._safe_upper(self.market_quality.get("state", "UNKNOWN"))
+
+        required_changes = []
+        if selection_delta > 0:
+            required_changes.append("selection_score>=0.85")
+        if liquidity_delta > 0:
+            required_changes.append("liquidity_score>=0.75")
+        if current_volume != "HIGH":
+            required_changes.append("volume=HIGH")
+
+        next_required_change = ",".join(required_changes) or "context_recheck"
+
+        print(
+            f"[CONTEXTUAL SEMANTIC] "
+            f"symbol={symbol} | "
+            f"stage={stage} | "
+            f"reason={reason} | "
+            f"classification=NEAR_PASS_MCE | "
+            f"selection_score={selection_value:.4f} | "
+            f"selection_delta={selection_delta:.4f} | "
+            f"liquidity_score={liquidity_value:.4f} | "
+            f"liquidity_delta={liquidity_delta:.4f} | "
+            f"volume_required=HIGH | "
+            f"current_volume={current_volume} | "
+            f"momentum={momentum_state} | "
+            f"mqii_state={mqii_state} | "
+            f"next_required_change={next_required_change}"
+        )
+
     def _apply_penalty_to_item(self, item):
         if not isinstance(item, dict):
             return item
@@ -813,6 +863,13 @@ class MarketRadarEngine:
                         f"state={market_state} | momentum={momentum_state}"
                     )
                     self._log_premium_setup_block(
+                        item=adjusted_item,
+                        stage="RADAR_MCE",
+                        reason="MCE_WEAK_BLOCKED_CONTEXT",
+                        liquidity_score=liquidity_score,
+                        selection_score=selection_score,
+                    )
+                    self._log_contextual_semantic_block(
                         item=adjusted_item,
                         stage="RADAR_MCE",
                         reason="MCE_WEAK_BLOCKED_CONTEXT",

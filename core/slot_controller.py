@@ -490,6 +490,107 @@ class SlotController:
 
         return exhaustion_pct, good_profit_pct, mqii_state, liquidity_score
 
+    def _log_drc_semantic_classification(
+        self,
+        symbol: str,
+        pnl_usdc: float,
+        duration_seconds: float,
+        reason=None,
+        mqii_state: str = "UNKNOWN",
+    ) -> None:
+        symbol = self._normalize_symbol(symbol)
+        reason_text = str(reason or "").strip().upper()
+        duration_seconds = max(0.0, float(duration_seconds or 0.0))
+
+        market_context = getattr(self, "last_market_context", None)
+        if not isinstance(market_context, dict):
+            market_context = {}
+
+        macro_state = str(
+            market_context.get("macro_state")
+            or market_context.get("macro_index_state")
+            or "UNKNOWN"
+        ).strip().upper()
+
+        try:
+            approved_count = int(market_context.get("approved_count", 0) or 0)
+        except Exception:
+            approved_count = 0
+
+        try:
+            uptrend_count = int(market_context.get("uptrend_count", 0) or 0)
+        except Exception:
+            uptrend_count = 0
+
+        recent_symbol_trades = [
+            trade
+            for trade in self.trade_history[-20:]
+            if self._normalize_symbol(trade.get("pair")) == symbol
+        ]
+        recent_failures = [
+            trade
+            for trade in recent_symbol_trades
+            if float(trade.get("profit", 0.0) or 0.0) < 0
+        ]
+        recent_stagnations = [
+            trade
+            for trade in recent_symbol_trades
+            if "STAGNATION" in str(trade.get("reason", "")).upper()
+        ]
+        recent_stops = [
+            trade
+            for trade in recent_symbol_trades
+            if "STOP_LOSS" in str(trade.get("reason", "")).upper()
+        ]
+
+        recurrent_asset_failure = (
+            len(recent_failures) >= 2
+            or len(recent_stagnations) >= 2
+            or len(recent_stops) >= 2
+            or self.pair_loss_streak.get(symbol, 0) >= 2
+        )
+
+        bad_market_context = (
+            mqii_state in ("CAUTIOUS", "NO_TRADE", "FRACO", "WEAK")
+            and (
+                macro_state == "MACRO_WEAK"
+                or approved_count <= 1
+                or uptrend_count <= 5
+            )
+        )
+
+        timing_reason = (
+            ("STOP_LOSS" in reason_text and duration_seconds < 60)
+            or ("DYNAMIC_PROFIT_PROTECTION" in reason_text and duration_seconds < 120)
+            or ("STAGNATION" in reason_text and duration_seconds < 180)
+        )
+
+        if recurrent_asset_failure:
+            classification = "BAD_ASSET"
+            reason_detail = "recurrent_symbol_failure"
+        elif bad_market_context:
+            classification = "BAD_MARKET"
+            reason_detail = "weak_market_context"
+        elif timing_reason:
+            classification = "BAD_TIMING"
+            reason_detail = "short_duration_exit"
+        else:
+            classification = "BAD_TIMING"
+            reason_detail = "non_recurrent_trade_context"
+
+        print(
+            f"[DRC SEMANTIC] "
+            f"symbol={symbol} | "
+            f"classification={classification} | "
+            f"exit_reason={reason_text} | "
+            f"duration={duration_seconds:.0f}s | "
+            f"mqii_state={mqii_state} | "
+            f"macro_state={macro_state} | "
+            f"approved_count={approved_count} | "
+            f"uptrend_count={uptrend_count} | "
+            f"reason_detail={reason_detail}"
+        )
+
     def _register_dynamic_reentry_control(
         self,
         symbol: str,
@@ -516,6 +617,14 @@ class SlotController:
             drc_mqii_state,
             drc_liquidity_score,
         ) = self._get_dynamic_drc_thresholds()
+
+        self._log_drc_semantic_classification(
+            symbol=symbol,
+            pnl_usdc=pnl_usdc,
+            duration_seconds=duration_seconds,
+            reason=reason,
+            mqii_state=drc_mqii_state,
+        )
 
         # 1) STOP muito rápido = provável erro de timing / virada brusca
         if pnl_usdc < 0 and duration_seconds <= self.drc_fast_stop_seconds:

@@ -88,6 +88,7 @@ class SelectionPolicyEngine:
     def __init__(self):
         self.lc1e = LC1EFeedbackAdapter()
         self.dynamic_policy = SelectionDynamicPolicy()
+        self._last_min_score_result = None
         print("[SelectionPolicyEngine] inicializado")
 
     # -------------------------------------------------------------------------
@@ -122,7 +123,7 @@ class SelectionPolicyEngine:
                 summary=str(e),
             )
 
-            return self._build_decision(
+            decision = self._build_decision(
                 data=data,
                 approved=False,
                 final_score=0.0,
@@ -133,6 +134,15 @@ class SelectionPolicyEngine:
                 is_sideways_operable=False,
                 summary=str(e),
             )
+            self._log_selection_semantic(
+                data=data,
+                decision=decision,
+                min_required=None,
+                market_context={},
+                reason_detail="INVALID_INPUT",
+            )
+
+            return decision
 
         # =========================
         # HARD FILTERS
@@ -151,6 +161,13 @@ class SelectionPolicyEngine:
                 summary="HARD_FILTER",
             )
             self._log_decision(decision)
+            self._log_selection_semantic(
+                data=data,
+                decision=decision,
+                min_required=None,
+                market_context=token.get("market_context", {}) or {},
+                reason_detail="HARD_FILTER",
+            )
 
             self._record_lc1e_event(
                 token=token,
@@ -181,6 +198,13 @@ class SelectionPolicyEngine:
                 summary="STRUCTURAL_REJECTION",
             )
             self._log_decision(decision)
+            self._log_selection_semantic(
+                data=data,
+                decision=decision,
+                min_required=None,
+                market_context=token.get("market_context", {}) or {},
+                reason_detail="STRUCTURAL_REJECTION",
+            )
 
             # LC-1E REGISTRO
             self._record_lc1e_event(
@@ -315,9 +339,17 @@ class SelectionPolicyEngine:
         # ========================================================
         # DECISÃO FINAL
         # ========================================================
+        self._last_min_score_result = None
         approved = premium_override or self._check_min_score(
             final_score, data, market_context
         )
+        min_score_result = self._last_min_score_result
+        min_required = None
+        reason_detail = "PREMIUM_OVERRIDE" if premium_override else "UNKNOWN"
+
+        if min_score_result is not None:
+            min_required = min_score_result.min_score_required
+            reason_detail = min_score_result.reason
 
         decision = self._build_decision(
             data=data,
@@ -332,6 +364,13 @@ class SelectionPolicyEngine:
         )
 
         self._log_decision(decision)
+        self._log_selection_semantic(
+            data=data,
+            decision=decision,
+            min_required=min_required,
+            market_context=market_context,
+            reason_detail=reason_detail,
+        )
 
         # LC-1E REGISTRO
         if not approved:
@@ -824,6 +863,7 @@ class SelectionPolicyEngine:
             f"vol={float(data.volume_ratio):.3f}"
         )
 
+        self._last_min_score_result = result
         return result.approved
 
     # -------------------------------------------------------------------------
@@ -871,6 +911,91 @@ class SelectionPolicyEngine:
         else:
             reasons = ",".join(decision.rejection_reasons) or "UNKNOWN"
             print(f"[SELECTION REJECTED] {decision.symbol} | reasons={reasons}")
+
+    def _log_selection_semantic(
+        self,
+        data: SelectionInput,
+        decision: SelectionDecision,
+        min_required=None,
+        market_context=None,
+        reason_detail: str = "UNKNOWN",
+    ) -> None:
+        market_context = market_context or {}
+
+        score = float(decision.final_score)
+        min_value = None
+        delta_to_min = None
+
+        if min_required is not None:
+            min_value = float(min_required)
+            delta_to_min = min_value - score
+
+        trend = str(data.trend).strip().upper()
+        momentum = str(data.momentum).strip().upper()
+        volume_state = str(data.volume_state).strip().upper()
+        mqii_state = str(market_context.get("mqii_state", "UNKNOWN")).strip().upper()
+        rsi = float(data.rsi or 0.0)
+        volume_ratio = float(data.volume_ratio or 0.0)
+
+        structural_reasons = {
+            "INVALID_INPUT",
+            "SYMBOL_BLOCKED",
+            "RSI_EXTREMO",
+            "VOLUME_EXTREMO",
+            "STRUCTURE_INVALID",
+            "SPREAD_INSUFFICIENT",
+            "RSI_BELOW_MIN",
+            "VOLUME_BELOW_MIN",
+        }
+
+        rejection_reasons = {
+            str(reason).upper() for reason in decision.rejection_reasons
+        }
+        premium_context = (
+            score >= 0.80
+            and trend in ("UPTREND", "STRONG_UPTREND")
+            and (volume_state in ("HIGH", "MODERATE") or volume_ratio >= 1.20)
+            and 42.0 <= rsi <= 68.0
+        )
+
+        contextual_reason = (
+            "CONTEXT" in str(reason_detail).upper()
+            or "NEUTRAL" in str(reason_detail).upper()
+            or "SIDEWAYS" in str(reason_detail).upper()
+            or mqii_state in ("CAUTIOUS", "NO_TRADE", "DEFENSIVE")
+        )
+
+        if rejection_reasons.intersection(structural_reasons):
+            classification = "STRUCTURAL_REJECT"
+        elif premium_context:
+            classification = "PREMIUM_SETUP"
+        elif decision.approved:
+            classification = "GOOD_SETUP"
+        elif delta_to_min is not None and 0.0 <= delta_to_min <= 0.05:
+            classification = "SCORE_NEAR_PASS"
+        elif contextual_reason:
+            classification = "CONTEXTUAL_REJECT"
+        else:
+            classification = "WEAK_SETUP"
+
+        min_text = "None" if min_value is None else f"{min_value:.4f}"
+        delta_text = "None" if delta_to_min is None else f"{delta_to_min:.4f}"
+
+        print(
+            f"[SELECTION SEMANTIC] "
+            f"symbol={decision.symbol} | "
+            f"classification={classification} | "
+            f"score={score:.4f} | "
+            f"min_required={min_text} | "
+            f"delta_to_min={delta_text} | "
+            f"approved={decision.approved} | "
+            f"trend={trend} | "
+            f"momentum={momentum} | "
+            f"volume={volume_state} | "
+            f"rsi={rsi:.2f} | "
+            f"mqii_state={mqii_state} | "
+            f"reason_detail={reason_detail}"
+        )
 
     def _record_lc1e_event(
         self,

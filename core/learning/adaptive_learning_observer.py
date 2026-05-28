@@ -15,6 +15,19 @@ from core.learning.learning_storage import LearningStorage
 
 
 class AdaptiveLearningObserver:
+    SEMANTIC_EVENTS = {
+        "NEAR_PASS_MCE",
+        "BAD_MARKET",
+        "BAD_TIMING",
+        "BAD_ASSET",
+        "PREMIUM_SETUP",
+        "GOOD_SETUP",
+        "WEAK_SETUP",
+        "SCORE_NEAR_PASS",
+        "CONTEXTUAL_REJECT",
+        "STRUCTURAL_REJECT",
+    }
+
     """
     Observer passivo do H&A.
 
@@ -33,6 +46,7 @@ class AdaptiveLearningObserver:
     def __init__(self):
         self.storage = LearningStorage()
         self.symbol_profiles = {}
+        self.semantic_memory = {}
         self._load_profiles_from_storage()
 
     # ============================================================
@@ -49,6 +63,25 @@ class AdaptiveLearningObserver:
             self.symbol_profiles[symbol] = SymbolLearningProfile(symbol=symbol)
 
         return self.symbol_profiles[symbol]
+
+    def _record_semantic_event(self, symbol: str, semantic_event: str) -> None:
+        symbol = self._normalize_symbol(symbol)
+        semantic_event = str(semantic_event or "").strip().upper()
+
+        if not symbol or semantic_event not in self.SEMANTIC_EVENTS:
+            return
+
+        symbol_memory = self.semantic_memory.setdefault(symbol, {})
+        symbol_memory[semantic_event] = int(symbol_memory.get(semantic_event, 0) or 0) + 1
+        count = symbol_memory[semantic_event]
+
+        print(
+            f"[ALO SEMANTIC] "
+            f"symbol={symbol} | "
+            f"event={semantic_event} | "
+            f"count={count} | "
+            f"mode=OBSERVE_ONLY"
+        )
 
     def _load_profiles_from_storage(self):
         raw_profiles = self.storage.get_all_profiles()
@@ -89,6 +122,16 @@ class AdaptiveLearningObserver:
         analysis = event.get("analysis", {}) or {}
         market_context = event.get("market_context", {}) or {}
         snapshot = event.get("snapshot", {}) or {}
+
+        semantic_event = (
+            event.get("semantic_event")
+            or event.get("classification")
+            or market_context.get("semantic_event")
+            or market_context.get("classification")
+            or analysis.get("semantic_event")
+            or analysis.get("classification")
+        )
+        self._record_semantic_event(symbol, semantic_event)
 
         stage = str(market_context.get("stage", "")).strip().upper()
         mqii_state = str(market_context.get("mqii_state", "")).strip().upper()

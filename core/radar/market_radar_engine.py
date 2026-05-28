@@ -654,6 +654,15 @@ class MarketRadarEngine:
                     f"volume={self._safe_upper(analysis.get('volume'))} | "
                     f"market_score={self._to_float(analysis.get('market_score', 0))}"
                 )
+                print(
+                    f"[CONTEXTUAL SEMANTIC] "
+                    f"symbol={symbol} | "
+                    f"event=QUALITY_FILTER_REJECTION | "
+                    f"reason=quality_filter_blocked_candidate | "
+                    f"momentum={self._safe_upper(analysis.get('momentum'))} | "
+                    f"volume={self._safe_upper(analysis.get('volume'))} | "
+                    f"market_score={self._to_float(analysis.get('market_score', 0))}"
+                )
                 self._log_premium_setup_block(
                     item=item,
                     stage="RADAR_QUALITY",

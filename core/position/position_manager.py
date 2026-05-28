@@ -785,23 +785,48 @@ class PositionManager:
         if not hasattr(self, "drc_memory"):
             self.drc_memory = {}
 
-        symbol_data = self.drc_memory.get(
-            symbol_name,
-            {
-                "recent_trades": 0,
-                "recent_failures": 0,
-            },
+        symbol_data = self.drc_memory.get(symbol_name, {}) or {}
+        rolling_history = list(symbol_data.get("rolling_history", []) or [])
+
+        if net_usdc > 0:
+            trade_result = "WIN"
+        elif net_usdc < 0:
+            trade_result = "LOSS"
+        else:
+            trade_result = "FLAT"
+
+        trade_memory = {
+            "result": trade_result,
+            "pnl_pct": net_pct,
+            "pnl_usdc": net_usdc,
+            "reason": reason_value,
+            "duration_seconds": duration_seconds,
+            "closed_at": pos.closed_at.isoformat() if pos.closed_at else None,
+        }
+
+        rolling_history.append(trade_memory)
+        rolling_history = rolling_history[-5:]
+
+        recent_trades = len(rolling_history)
+        recent_failures = sum(
+            1 for trade in rolling_history if trade.get("result") == "LOSS"
+        )
+        recent_wins = sum(
+            1 for trade in rolling_history if trade.get("result") == "WIN"
         )
 
-        # incrementa trades
-        symbol_data["recent_trades"] += 1
-
-        # incrementa falhas
-        if net_usdc < 0:
-            symbol_data["recent_failures"] += 1
-        else:
-            # reduz falhas em caso de sucesso
-            symbol_data["recent_failures"] = max(0, symbol_data["recent_failures"] - 1)
+        symbol_data = {
+            "recent_trades": recent_trades,
+            "recent_failures": recent_failures,
+            "recent_wins": recent_wins,
+            "last_trade_result": trade_result,
+            "last_exit_reason": reason_value,
+            "last_closed_at": pos.closed_at.isoformat() if pos.closed_at else None,
+            "last_duration_seconds": duration_seconds,
+            "last_pnl_pct": net_pct,
+            "last_pnl_usdc": net_usdc,
+            "rolling_history": rolling_history,
+        }
 
         self.drc_memory[symbol_name] = symbol_data
 

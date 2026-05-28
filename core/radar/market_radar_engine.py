@@ -314,11 +314,13 @@ class MarketRadarEngine:
         if not isinstance(item, dict):
             return False
 
+        item.pop("_radar_quality_reason", None)
         analysis = item.get("analysis") or {}
         snapshot = item.get("snapshot")
         symbol = self._safe_symbol(item.get("symbol"))
 
         if not symbol or snapshot is None:
+            item["_radar_quality_reason"] = "invalid_symbol_or_snapshot"
             return False
 
         market_score = self._to_float(analysis.get("market_score", 0), default=0.0)
@@ -337,41 +339,50 @@ class MarketRadarEngine:
         market_state = self._safe_upper(analysis.get("market_state"))
 
         if market_score < 0:
+            item["_radar_quality_reason"] = "negative_market_score"
             self._count_radar_rejection("SCORE_BAIXO")
             return False
 
         if volume_ratio < 0:
+            item["_radar_quality_reason"] = "negative_volume_ratio"
             self._count_radar_rejection("VOLUME_EXTREMO")
             return False
 
         if rsi_value <= 0:
+            item["_radar_quality_reason"] = "invalid_rsi"
             self._count_radar_rejection("RSI_EXTREMO")
             return False
 
         if raw_score < 0:
+            item["_radar_quality_reason"] = "negative_raw_score"
             self._count_radar_rejection("SCORE_BAIXO")
             return False
 
         if market_score < self.min_market_score:
+            item["_radar_quality_reason"] = "market_score_below_minimum"
             self._count_radar_rejection("SCORE_BAIXO")
             return False
 
         if volume_ratio < 0.30:
             if trend_state != "UPTREND":
+                item["_radar_quality_reason"] = "low_volume_without_uptrend"
                 self._count_radar_rejection("VOLUME_EXTREMO")
                 return False
 
         if rsi_value < 35.0:
+            item["_radar_quality_reason"] = "rsi_below_minimum"
             self._count_radar_rejection("RSI_EXTREMO")
             return False
 
         if market_state == "SIDEWAYS":
             if not (volume_ratio >= 0.3 and rsi_value >= 45.0):
+                item["_radar_quality_reason"] = "sideways_requires_volume_and_rsi"
                 self._count_radar_rejection("QUALITY_FILTER")
                 return False
 
         if momentum_state == "NEUTRAL":
             if volume_ratio < 0.15:
+                item["_radar_quality_reason"] = "neutral_low_volume"
                 self._count_radar_rejection("VOLUME_EXTREMO")
                 return False
 
@@ -394,10 +405,14 @@ class MarketRadarEngine:
                 pass
 
             else:
+                item["_radar_quality_reason"] = (
+                    "neutral_without_premium_or_uptrend_context"
+                )
                 self._count_radar_rejection("QUALITY_FILTER")
                 return False
 
         if trend_state not in ("UPTREND", "STRONG_UPTREND"):
+            item["_radar_quality_reason"] = "trend_not_accepted"
             self._count_radar_rejection("NO_UPTREND")
             return False
 
@@ -659,6 +674,7 @@ class MarketRadarEngine:
                     f"symbol={symbol} | "
                     f"event=QUALITY_FILTER_REJECTION | "
                     f"reason=quality_filter_blocked_candidate | "
+                    f"quality_reason={item.get('_radar_quality_reason', 'quality_filter_unspecified')} | "
                     f"momentum={self._safe_upper(analysis.get('momentum'))} | "
                     f"volume={self._safe_upper(analysis.get('volume'))} | "
                     f"market_score={self._to_float(analysis.get('market_score', 0))}"

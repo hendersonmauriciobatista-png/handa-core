@@ -360,6 +360,20 @@ class MarketRadarEngine:
 
         if market_score < self.min_market_score:
             item["_radar_quality_reason"] = "market_score_below_minimum"
+            score_reason = "analysis_market_score_below_minimum"
+            if "market_score" not in analysis:
+                score_reason = "analysis_market_score_missing"
+            print(
+                f"[MARKET SCORE DEBUG] "
+                f"symbol={symbol} | "
+                f"market_score={market_score} | "
+                f"trend={trend_state} | "
+                f"momentum={momentum_state} | "
+                f"volume={self._safe_upper(analysis.get('volume'))} | "
+                f"volume_ratio={volume_ratio} | "
+                f"rsi={rsi_value} | "
+                f"reason={score_reason}"
+            )
             self._count_radar_rejection("SCORE_BAIXO")
             return False
 

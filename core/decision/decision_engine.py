@@ -555,11 +555,25 @@ class DecisionEngine:
         # 🔥 EXECUTION STABILITY GATE + TCE PATCH
         # Trend Continuation Entry — RSI alto contextual
         # ======================================================
+        def _normalize_stability_value(value):
+            raw = str(value or "").strip().upper()
+            if "." in raw:
+                raw = raw.split(".")[-1]
+            return raw
+
         market_state_raw = (
-            str(getattr(snapshot, "market_state", "") or "").strip().upper()
+            _normalize_stability_value(getattr(snapshot, "market_state", ""))
         )
-        trend_raw = str(getattr(snapshot, "trend", "") or "").strip().upper()
-        momentum_raw = str(getattr(snapshot, "momentum", "") or "").strip().upper()
+        trend_raw = _normalize_stability_value(getattr(snapshot, "trend", ""))
+        momentum_raw = _normalize_stability_value(getattr(snapshot, "momentum", ""))
+
+        logger.info(
+            f"[STABILITY GATE NORMALIZED] symbol={pair} | "
+            f"trend={trend_raw} | "
+            f"momentum={momentum_raw} | "
+            f"market_state={market_state_raw}"
+        )
+
         mqii_state = ""
 
         try:

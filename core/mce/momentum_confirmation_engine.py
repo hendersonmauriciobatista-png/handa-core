@@ -168,6 +168,18 @@ class MomentumConfirmationEngine:
             )
 
             # 🔥 NOVO: impedir perda de força (volume caindo demais)
+            print(
+                f"[MCE V3.2 EXPLAIN] {symbol} | "
+                f"price={price:.8f} | reference_price={candidate.reference_price:.8f} | "
+                f"price_change={price_change:.6f}% | "
+                f"progress_ok={progress_ok} | "
+                f"volume_ok={volume_ok} | "
+                f"volume_ratio={volume_ratio:.3f} | "
+                f"reference_volume_ratio={candidate.reference_volume_ratio:.3f} | "
+                f"rsi_ok={rsi <= MCE_MAX_RSI} | "
+                f"momentum_ok={momentum in ['NEUTRAL', 'BULLISH']}"
+            )
+
             volume_drop = volume_ratio < (candidate.reference_volume_ratio * 0.7)
 
             if volume_drop:

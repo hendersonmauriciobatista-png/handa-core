@@ -884,6 +884,14 @@ class MarketRadarEngine:
 
                     adjusted_item["mce_weak"] = False
 
+                    print(
+                        f"[MCE V3.3 EXPLAIN] {symbol} | "
+                        f"mce_weak=False | "
+                        f"selection_score={selection_score:.4f} | "
+                        f"mqii={mqii_state} | "
+                        f"liquidity={liquidity_score:.4f}"
+                    )
+
                 # 🔒 BLOQUEIO DIRETO — CONTEXTO FRACO
                 contextual_mce_survival = (
                     selection_score >= 0.85
@@ -933,6 +941,13 @@ class MarketRadarEngine:
                 # ======================================================
                 # 🔥 ALO LEARNING — MCE V3 WEAK CONFIRMATION
                 # ======================================================
+                print(
+                    f"[MCE RECORD EXPLAIN] "
+                    f"symbol={symbol} | "
+                    f"mce_weak_at_record_time={adjusted_item.get('mce_weak', False)} | "
+                    f"premium_released={not adjusted_item.get('mce_weak', True)}"
+                )
+
                 self._record_radar_non_execution(
                     item=adjusted_item,
                     reason="MCE_V3_WEAK_CONFIRMATION",

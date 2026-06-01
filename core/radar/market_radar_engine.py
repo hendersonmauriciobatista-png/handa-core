@@ -92,6 +92,7 @@ class MarketRadarEngine:
         self.rejection_cooldowns: Dict[str, int] = {}
         self.penalty_map: Dict[str, int] = {}
         self.last_traded_symbol: Optional[str] = None
+        self.operational_state: Dict[str, dict] = {}
 
         # parâmetros operacionais
         self.max_penalty_allowed = 2
@@ -213,6 +214,31 @@ class MarketRadarEngine:
     def set_rejection_cooldowns(self, symbols: Optional[Iterable]):
         self.rejection_cooldowns = self._normalize_symbol_set(symbols)
 
+    def set_operational_state(self, operational_state: Optional[Dict[str, dict]]):
+        """
+        Consome snapshot operacional externo.
+
+        O Radar nao decide cooldown, recovery ou severidade; apenas respeita
+        inelegibilidade informada por fonte autorizada.
+        """
+        self.operational_state = {}
+
+        if not operational_state:
+            return
+
+        for symbol, state in operational_state.items():
+            normalized_symbol = self._safe_symbol(symbol)
+            if not normalized_symbol or not isinstance(state, dict):
+                continue
+
+            self.operational_state[normalized_symbol] = {
+                "eligible": bool(state.get("eligible", True)),
+                "source": str(state.get("source") or "UNKNOWN").strip(),
+                "reason": str(state.get("reason") or "UNSPECIFIED").strip().upper(),
+                "remaining_seconds": state.get("remaining_seconds"),
+                "remaining_cycles": state.get("remaining_cycles"),
+            }
+
     def set_penalty_map(self, penalty_map: Optional[Dict[str, int]]):
         self.penalty_map = {}
 
@@ -285,12 +311,27 @@ class MarketRadarEngine:
 
         return False
 
+    def _get_external_operational_block(self, symbol: str):
+        state = self.operational_state.get(symbol)
+
+        if isinstance(state, dict) and state.get("eligible") is False:
+            return state
+
+        return None
+
     def _passes_operational_filter(self, item):
         if not isinstance(item, dict):
             return False
 
         symbol = self._safe_symbol(item.get("symbol"))
         if not symbol:
+            return False
+
+        item.pop("_radar_operational_state", None)
+
+        external_block = self._get_external_operational_block(symbol)
+        if external_block:
+            item["_radar_operational_state"] = external_block
             return False
 
         if self._is_symbol_blocked(symbol):
@@ -659,15 +700,30 @@ class MarketRadarEngine:
                 self._count_radar_rejection(reason_flag)
 
             if not self._passes_operational_filter(item):
-                print(f"[RADAR FILTER] {symbol} REJEITADO no filtro operacional")
+                op_state = item.get("_radar_operational_state") or {}
+                if op_state:
+                    print(
+                        f"[RADAR OP STATE] {symbol} inelegivel | "
+                        f"source={op_state.get('source', 'UNKNOWN')} | "
+                        f"reason={op_state.get('reason', 'UNSPECIFIED')} | "
+                        f"remaining_seconds={op_state.get('remaining_seconds')} | "
+                        f"remaining_cycles={op_state.get('remaining_cycles')}"
+                    )
+                    rejection_reason = "OPERATIONAL_STATE_INELIGIBLE"
+                    rejection_summary = "RADAR_OPERATIONAL_STATE"
+                else:
+                    print(f"[RADAR FILTER] {symbol} REJEITADO no filtro operacional")
+                    rejection_reason = "OPERATIONAL_FILTER_REJECTION"
+                    rejection_summary = "RADAR_OPERATIONAL_FILTER"
 
                 self._record_radar_non_execution(
                     item=item,
-                    reason="OPERATIONAL_FILTER_REJECTION",
-                    summary="RADAR_OPERATIONAL_FILTER",
+                    reason=rejection_reason,
+                    summary=rejection_summary,
                     market_context={
                         "trade_cooldowns": sorted(self.trade_cooldowns),
                         "rejection_cooldowns": sorted(self.rejection_cooldowns),
+                        "external_operational_state": op_state,
                         "last_traded_symbol": self.last_traded_symbol,
                         "penalty_value": self.penalty_map.get(symbol, 0),
                     },

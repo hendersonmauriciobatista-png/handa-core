@@ -216,6 +216,58 @@ class SlotController:
     def _normalize_symbol(self, symbol: str) -> str:
         return str(symbol).strip().upper()
 
+    def _build_radar_operational_state(self):
+        """
+        Snapshot passivo para consumo do Radar.
+
+        O SlotController/DRC continua sendo a fonte do bloqueio; o Radar apenas
+        consome a inelegibilidade operacional ja calculada aqui.
+        """
+        state = {}
+        now = self._now_ts()
+
+        for symbol, release_ts in list(self.pair_cooldowns.items()):
+            normalized = self._normalize_symbol(symbol)
+
+            try:
+                remaining = int(float(release_ts) - now)
+            except Exception:
+                remaining = 0
+
+            if normalized and remaining > 0:
+                state[normalized] = {
+                    "eligible": False,
+                    "source": "SlotController.DRC",
+                    "reason": "PAIR_COOLDOWN_ACTIVE",
+                    "remaining_seconds": remaining,
+                }
+
+        for symbol, cycles in list(self.rejected_symbols_cooldown.items()):
+            normalized = self._normalize_symbol(symbol)
+
+            try:
+                remaining_cycles = int(cycles)
+            except Exception:
+                remaining_cycles = 0
+
+            if not normalized or remaining_cycles <= 0:
+                continue
+
+            current = state.get(normalized)
+            if current:
+                current["source"] = "SlotController.DRC+RejectionCooldown"
+                current["reason"] = "PAIR_AND_REJECTION_COOLDOWN_ACTIVE"
+                current["remaining_cycles"] = remaining_cycles
+            else:
+                state[normalized] = {
+                    "eligible": False,
+                    "source": "SlotController.RejectionCooldown",
+                    "reason": "REJECTION_COOLDOWN_ACTIVE",
+                    "remaining_cycles": remaining_cycles,
+                }
+
+        return state
+
     # ========================================================
     # H&A LEARNING SYNC
     # ========================================================
@@ -258,6 +310,14 @@ class SlotController:
                     self.market_radar.set_last_traded_symbol(last_symbol)
             except Exception as e:
                 print(f"[LEARNING SYNC] radar last symbol sync error: {e}")
+
+            try:
+                if hasattr(self.market_radar, "set_operational_state"):
+                    self.market_radar.set_operational_state(
+                        self._build_radar_operational_state()
+                    )
+            except Exception as e:
+                print(f"[LEARNING SYNC] radar operational state sync error: {e}")
 
         # -----------------------------
         # DECISION ENGINE

@@ -272,6 +272,18 @@ class SlotController:
     # H&A LEARNING SYNC
     # ========================================================
 
+    def _sync_radar_operational_state(self):
+        if not self.market_radar:
+            return
+
+        try:
+            if hasattr(self.market_radar, "set_operational_state"):
+                self.market_radar.set_operational_state(
+                    self._build_radar_operational_state()
+                )
+        except Exception as e:
+            print(f"[LEARNING SYNC] radar operational state sync error: {e}")
+
     def _sync_learning_context(self):
         """
         Sincroniza a memória operacional aprendida no PositionManager
@@ -310,14 +322,6 @@ class SlotController:
                     self.market_radar.set_last_traded_symbol(last_symbol)
             except Exception as e:
                 print(f"[LEARNING SYNC] radar last symbol sync error: {e}")
-
-            try:
-                if hasattr(self.market_radar, "set_operational_state"):
-                    self.market_radar.set_operational_state(
-                        self._build_radar_operational_state()
-                    )
-            except Exception as e:
-                print(f"[LEARNING SYNC] radar operational state sync error: {e}")
 
         # -----------------------------
         # DECISION ENGINE
@@ -1368,6 +1372,7 @@ class SlotController:
 
         self._cycle_counter += 1
         self._start_new_cycle()
+        self._sync_radar_operational_state()
         self._audit_operational_consistency()
 
         # ==========================================================

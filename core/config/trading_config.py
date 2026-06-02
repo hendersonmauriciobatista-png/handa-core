@@ -155,3 +155,12 @@ HARD_EXIT_ON_DOUBLE_WEAKNESS = True
 
 # dupla fraqueza = ex:
 # EMA curta perde EMA longa + RSI abaixo do limite duro
+
+# ============================================================
+# LIVE SHADOW MODE v1
+# Simulacao read-only sobre execucao MOCK, sem ordens reais.
+# ============================================================
+SHADOW_MODE_ENABLED = True
+SHADOW_FEE_PCT = 0.10
+SHADOW_SLIPPAGE_PCT = 0.05
+SHADOW_LATENCY_MS = 500

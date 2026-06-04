@@ -269,6 +269,7 @@ class MarketRankingEngine:
                 # log removido (debug ranking)
 
                 score = 0.0
+                approval_reasons = []
 
                 # ------------------------------------------------
                 # FILTROS DUROS
@@ -299,6 +300,9 @@ class MarketRankingEngine:
                         # log removido (radar filter - liberação controlada rsi extremo)
                         pass
 
+                if rsi > 75 and rsi_extreme_but_valid:
+                    approval_reasons.append("RSI_EXTREME_VALID")
+
                 # Pump / volume anormal excessivo
                 if volume_ratio >= 4.0:
                     volume_extreme_but_valid = (
@@ -320,6 +324,9 @@ class MarketRankingEngine:
                     else:
                         # log removido (radar filter - liberação controlada volume extremo)
                         pass
+
+                if volume_ratio >= 4.0 and volume_extreme_but_valid:
+                    approval_reasons.append("VOLUME_EXTREME_VALID")
 
                 # ------------------------------------------------
                 # TREND PREFERENCIAL / LIBERAÇÃO CONTROLADA
@@ -363,10 +370,15 @@ class MarketRankingEngine:
                     if neutral_trend_ok:
                         if strong_context:
                             score += 0.22
+                            approval_reasons.append("NO_UPTREND_STRONG_CONTEXT")
                         elif moderate_context:
                             score += 0.18
+                            approval_reasons.append("NO_UPTREND_MODERATE_CONTEXT")
                         else:
                             score += 0.12
+                            approval_reasons.append(
+                                "NO_UPTREND_WEAK_OPERABLE_CONTEXT"
+                            )
                     else:
                         # 🔥 NOVO: NÃO BLOQUEAR DIRETO
                         weak_but_tradeable = (
@@ -397,6 +409,7 @@ class MarketRankingEngine:
                                 score += 0.10
 
                             print(f"[RANKING PATCH] {symbol} liberado (weak trend)")
+                            approval_reasons.append("WEAK_TREND_TRADEABLE_CONTEXT")
                         else:
                             dynamic_allow = False
 
@@ -423,6 +436,9 @@ class MarketRankingEngine:
                                         "PREMIUM_OK",
                                     ):
                                         dynamic_allow = True
+                                        approval_reasons.append(
+                                            f"DYNAMIC_CORE_{dynamic_result.dynamic_mode}"
+                                        )
                                         print(
                                             f"[RADAR DYNAMIC] {symbol} LIBERADO | mode={dynamic_result.dynamic_mode}"
                                         )
@@ -533,6 +549,7 @@ class MarketRankingEngine:
 
                 if individual_recovery_context:
                     dynamic_min_score = 0.25
+                    approval_reasons.append("INDIVIDUAL_RECOVERY_CONTEXT")
 
                 cautiously_operable_context = (
                     uptrend_count_ctx >= 10
@@ -548,6 +565,7 @@ class MarketRankingEngine:
 
                 if cautiously_operable_context:
                     dynamic_min_score = 0.25
+                    approval_reasons.append("CAUTIOUSLY_OPERABLE_CONTEXT")
 
                 if healthy_context:
                     dynamic_min_score = 0.30
@@ -630,6 +648,7 @@ class MarketRankingEngine:
                         and (market_score >= 0.0 or avg_volume_ratio_ctx >= 0.50)
                     ):
                         quality_ok = True
+                        approval_reasons.append("QUALITY_RECOVERY")
                         print(
                             f"[QUALITY RECOVERY] {symbol} liberado contextual | "
                             f"liq={liquidity_score_ctx:.2f} | "
@@ -647,6 +666,7 @@ class MarketRankingEngine:
                     and 45 <= rsi <= 68
                 ):
                     quality_ok = True
+                    approval_reasons.append("STRONG_TECHNICAL_SCORE_CONTEXT")
                     # log removido (radar filter - liberação controlada por score forte)
 
                 if not quality_ok:
@@ -670,7 +690,18 @@ class MarketRankingEngine:
                 # ------------------------------------------------
                 # APROVAÇÃO FINAL
                 # ------------------------------------------------
+                if market_score < 1.0:
+                    approval_reasons.append("LOW_MARKET_SCORE_RANKING_APPROVED")
+
                 token["score"] = round(score, 4)
+
+                token["ranking_context"] = {
+                    "contextual_approval": bool(approval_reasons),
+                    "approval_source": "MarketRankingEngine",
+                    "approval_reasons": approval_reasons,
+                    "no_effect": True,
+                    "authority": "context_only",
+                }
 
                 approved_count_real += 1
 

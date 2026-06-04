@@ -694,6 +694,16 @@ class MarketRadarEngine:
 
         for item in ranking:
             symbol = self._safe_symbol(item.get("symbol"))
+            ranking_context = item.get("ranking_context")
+
+            if isinstance(ranking_context, dict):
+                print(
+                    f"[RANKING CONTEXT RECEIVED] "
+                    f"symbol={symbol} | "
+                    f"approval_reasons={ranking_context.get('approval_reasons', [])} | "
+                    f"no_effect={ranking_context.get('no_effect', True)} | "
+                    f"authority={ranking_context.get('authority', 'context_only')}"
+                )
 
             reason_flag = item.get("_radar_rejection_reason")
             if reason_flag:

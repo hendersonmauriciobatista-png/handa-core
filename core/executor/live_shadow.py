@@ -37,6 +37,12 @@ class LiveShadowSimulator:
         self.slippage_pct = float(slippage_pct)
         self.latency_ms = int(latency_ms)
         self.shadow_positions = {}
+        print(
+            f"[SHADOW INIT] enabled={self.enabled} | "
+            f"fee_pct={self.fee_pct:g} | "
+            f"slippage_pct={self.slippage_pct:g} | "
+            f"latency_ms={self.latency_ms} | no_effect=True"
+        )
 
     def record_buy(
         self,

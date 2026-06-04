@@ -14,6 +14,11 @@ except Exception as e:
     print(f"[PERSISTENCE IMPORT ERROR] {e}")
     PostgresStateRepository = None
 
+try:
+    from core.executor.live_shadow import LiveShadowSimulator
+except Exception:
+    LiveShadowSimulator = None
+
 
 def format_buy_telegram(pair: str, entry: float, capital: float) -> str:
     return f"BUY | {pair}\n" f"{entry:.8f} | {capital:.2f} USDC"
@@ -62,6 +67,9 @@ class MockExecutor:
 
         # pair -> dados da posição
         self.positions = {}
+        self.live_shadow = (
+            LiveShadowSimulator() if LiveShadowSimulator is not None else None
+        )
 
         # tenta carregar estado salvo
         loaded = self._load_state()
@@ -180,6 +188,17 @@ class MockExecutor:
         else:
             print(f"[DEBUG TELEGRAM BUY] notifier está None para {pair}")
 
+        if self.live_shadow:
+            try:
+                self.live_shadow.record_buy(
+                    symbol=pair,
+                    signal_price=entry_price,
+                    allocated_usdc=allocated_usdc,
+                    quantity=quantity,
+                )
+            except Exception as e:
+                print(f"[SHADOW BUY ERROR] {e}")
+
         return SimpleNamespace(
             pair=pair,
             entry_price=entry_price,
@@ -209,6 +228,18 @@ class MockExecutor:
 
         usdc_received = quantity * exit_price
         net_pnl_usdc = usdc_received - allocated_usdc
+
+        if self.live_shadow:
+            try:
+                self.live_shadow.record_sell(
+                    symbol=pair,
+                    signal_entry_price=entry_price,
+                    signal_exit_price=exit_price,
+                    quantity=quantity,
+                    mock_net_pnl_usdc=net_pnl_usdc,
+                )
+            except Exception as e:
+                print(f"[SHADOW SELL ERROR] {e}")
 
         # devolve saldo
         self.balance_usdc += usdc_received

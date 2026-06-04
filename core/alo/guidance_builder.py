@@ -19,10 +19,12 @@ class ALOGuidanceBuilder:
         cycle_id: str = "",
         memory_snapshot: Any = None,
         context_snapshot: Any = None,
+        global_guidance_snapshot: Any = None,
     ) -> ALOGuidanceSnapshot:
         safe_symbol = self._safe_symbol(symbol)
         memory_available = self._is_available(memory_snapshot)
         context_available = self._is_available(context_snapshot)
+        macro_context = self._extract_macro_context(global_guidance_snapshot)
 
         profile = self._get_memory_profile(memory_snapshot, safe_symbol)
         local_context = self._get_local_context(context_snapshot, safe_symbol)
@@ -45,6 +47,7 @@ class ALOGuidanceBuilder:
             similarity_level=similarity_level,
             divergence_level=divergence_level,
             missing_sources=missing_sources,
+            macro_context=macro_context,
         )
         interpretation_label = self._interpret_label(
             memory_available=memory_available,
@@ -59,28 +62,54 @@ class ALOGuidanceBuilder:
             similarity_level=similarity_level,
             divergence_level=divergence_level,
             missing_sources=missing_sources,
+            macro_context=macro_context,
         )
 
-        return ALOGuidanceSnapshot(
+        snapshot = ALOGuidanceSnapshot(
             symbol=safe_symbol,
             cycle_id=str(cycle_id or ""),
             generated_at=self._now_iso(),
             memory_available=memory_available,
             context_available=context_available,
+            macro_context_available=bool(macro_context["available"]),
             historical_alignment=historical_alignment,
             context_stability=context_stability,
             similarity_level=similarity_level,
             divergence_level=divergence_level,
+            macro_alignment=float(macro_context["macro_alignment"]),
+            macro_state=str(macro_context["macro_state"]),
+            macro_reason_codes=tuple(macro_context["macro_reason_codes"]),
+            macro_explainability=str(macro_context["macro_explainability"]),
+            macro_no_effect=bool(macro_context["no_effect"]),
+            macro_operational_effect_count=int(
+                macro_context["operational_effect_count"]
+            ),
             interpretation_label=interpretation_label,
             interpretation_notes=tuple(notes),
             reason_codes=tuple(reason_codes),
             missing_sources=tuple(missing_sources),
             source_summary=self._build_source_summary(
-                memory_snapshot, context_snapshot, profile, local_context
+                memory_snapshot,
+                context_snapshot,
+                profile,
+                local_context,
+                macro_context,
             ),
             no_effect=True,
             operational_effect_count=0,
         )
+
+        if macro_context["available"]:
+            print(
+                "[ALO GUIDANCE MACRO READONLY] "
+                f"macro_state={macro_context['macro_state']} | "
+                f"macro_alignment={float(macro_context['macro_alignment']):.4f} | "
+                f"no_effect={str(macro_context['no_effect']).lower()} | "
+                f"operational_effect_count="
+                f"{int(macro_context['operational_effect_count'])}"
+            )
+
+        return snapshot
 
     def _is_available(self, snapshot: Any) -> bool:
         if snapshot is None:
@@ -186,6 +215,7 @@ class ALOGuidanceBuilder:
         similarity_level: str,
         divergence_level: str,
         missing_sources: List[str],
+        macro_context: Dict[str, Any],
     ) -> List[str]:
         codes = [
             f"HISTORICAL_ALIGNMENT={historical_alignment}",
@@ -194,6 +224,13 @@ class ALOGuidanceBuilder:
             f"DIVERGENCE_LEVEL={divergence_level}",
         ]
         codes.extend(f"MISSING_SOURCE={source}" for source in missing_sources)
+        if macro_context["available"]:
+            codes.append("MACRO_CONTEXT_AVAILABLE=True")
+            codes.append(f"MACRO_STATE={macro_context['macro_state']}")
+            codes.append(
+                f"MACRO_ALIGNMENT={float(macro_context['macro_alignment']):.4f}"
+            )
+            codes.extend(str(code) for code in macro_context["macro_reason_codes"])
         codes.append("READ_ONLY_NO_EFFECT")
         return codes
 
@@ -225,6 +262,7 @@ class ALOGuidanceBuilder:
         similarity_level: str,
         divergence_level: str,
         missing_sources: List[str],
+        macro_context: Dict[str, Any],
     ) -> List[str]:
         notes = [
             f"Historical alignment is {historical_alignment}.",
@@ -232,6 +270,13 @@ class ALOGuidanceBuilder:
             f"Similarity level is {similarity_level}.",
             f"Divergence level is {divergence_level}.",
         ]
+        if macro_context["available"]:
+            notes.append(
+                "Macro leaders context is "
+                f"{macro_context['macro_state']} "
+                f"with alignment {float(macro_context['macro_alignment']):.4f}."
+            )
+            notes.append(str(macro_context["macro_explainability"]))
         if missing_sources:
             notes.append(f"Missing sources: {', '.join(missing_sources)}.")
         notes.append("Read-only interpretation only; no operational effect.")
@@ -243,6 +288,7 @@ class ALOGuidanceBuilder:
         context_snapshot: Any,
         profile: Any,
         local_context: Dict[str, Any],
+        macro_context: Dict[str, Any],
     ) -> Dict[str, Any]:
         return {
             "memory_mode": getattr(memory_snapshot, "mode", ""),
@@ -255,6 +301,57 @@ class ALOGuidanceBuilder:
             ),
             "memory_profile_available": profile is not None,
             "local_context_fields": len(local_context),
+            "macro_context_available": bool(macro_context["available"]),
+            "macro_state": macro_context["macro_state"],
+            "macro_alignment": macro_context["macro_alignment"],
+            "macro_no_effect": macro_context["no_effect"],
+            "macro_operational_effect_count": macro_context[
+                "operational_effect_count"
+            ],
+            "no_effect": True,
+            "operational_effect_count": 0,
+        }
+
+    def _extract_macro_context(self, global_guidance_snapshot: Any) -> Dict[str, Any]:
+        default = {
+            "available": False,
+            "macro_alignment": 0.0,
+            "macro_state": "UNKNOWN",
+            "macro_reason_codes": tuple(),
+            "macro_explainability": "",
+            "no_effect": True,
+            "operational_effect_count": 0,
+        }
+
+        if global_guidance_snapshot is None:
+            return default
+
+        mode = str(
+            getattr(global_guidance_snapshot, "mode", "") or ""
+        ).strip().upper()
+        no_effect = getattr(global_guidance_snapshot, "no_effect", True)
+        operational_effect_count = int(
+            getattr(global_guidance_snapshot, "operational_effect_count", 0) or 0
+        )
+
+        if mode != "READ_ONLY" or no_effect is not True or operational_effect_count != 0:
+            return default
+
+        return {
+            "available": True,
+            "macro_alignment": float(
+                getattr(global_guidance_snapshot, "macro_alignment", 0.0) or 0.0
+            ),
+            "macro_state": str(
+                getattr(global_guidance_snapshot, "macro_state", "UNKNOWN")
+                or "UNKNOWN"
+            ).strip().upper(),
+            "macro_reason_codes": tuple(
+                getattr(global_guidance_snapshot, "macro_reason_codes", ()) or ()
+            ),
+            "macro_explainability": str(
+                getattr(global_guidance_snapshot, "macro_explainability", "") or ""
+            ),
             "no_effect": True,
             "operational_effect_count": 0,
         }

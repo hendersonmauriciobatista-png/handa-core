@@ -773,7 +773,7 @@ class SelectionPolicyEngine:
         # =========================================
         # UPTREND = melhor cenário
         # =========================================
-        if state == "UPTREND":
+        if state in ("BULLISH_STRONG", "UPTREND"):
             base_score = 0.10
 
         # =========================================
@@ -787,6 +787,9 @@ class SelectionPolicyEngine:
         # =========================================
         elif state == "BULLISH_WEAK":
             base_score = 0.03
+
+        elif state in ("BEARISH_WEAK", "BEARISH_STRONG"):
+            base_score = 0.0
 
         # =========================================
         # Bônus leve por market_score

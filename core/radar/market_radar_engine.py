@@ -1316,13 +1316,10 @@ class MarketRadarEngine:
                 try:
                     macro_symbols = {"BTCUSDC", "ETHUSDC", "BNBUSDC"}
                     macro_items = []
+                    macro_seen_symbols = set()
 
-                    for item in raw_ranking:
+                    def _build_macro_item(item):
                         symbol = str(item.get("symbol", "")).upper()
-
-                        if symbol not in macro_symbols:
-                            continue
-
                         analysis = item.get("analysis", {}) or {}
                         snapshot = item.get("snapshot", None)
 
@@ -1336,15 +1333,41 @@ class MarketRadarEngine:
                                 getattr(snapshot, "volume_ratio", 0.0) or 0.0
                             )
 
-                        macro_items.append(
-                            {
-                                "symbol": symbol,
-                                "trend": trend,
-                                "momentum": momentum,
-                                "market_state": market_state,
-                                "volume_ratio": round(volume_ratio, 4),
-                            }
-                        )
+                        return {
+                            "symbol": symbol,
+                            "trend": trend,
+                            "momentum": momentum,
+                            "market_state": market_state,
+                            "volume_ratio": round(volume_ratio, 4),
+                        }
+
+                    for item in raw_ranking:
+                        symbol = str(item.get("symbol", "")).upper()
+
+                        if symbol not in macro_symbols:
+                            continue
+
+                        macro_items.append(_build_macro_item(item))
+                        macro_seen_symbols.add(symbol)
+
+                    missing_macro_symbols = sorted(macro_symbols - macro_seen_symbols)
+
+                    for symbol in missing_macro_symbols:
+                        try:
+                            macro_analysis = (
+                                self.scanner.technical_scanner.analyze_symbol(symbol)
+                            )
+                            if macro_analysis:
+                                macro_items.append(_build_macro_item(macro_analysis))
+                                print(
+                                    f"[MACRO INDEX READONLY] {symbol} "
+                                    "analisado fora do ranking operacional | "
+                                    "no_effect=true | operational_effect_count=0"
+                                )
+                        except Exception as e:
+                            print(
+                                f"[MACRO INDEX READONLY ERROR] {symbol} | erro={e}"
+                            )
 
                     macro_total = len(macro_items)
                     macro_bullish = sum(

@@ -1284,6 +1284,20 @@ class SlotController:
         if current_price > 0:
             atr = current_price * 0.003
 
+        try:
+            selection_score = float(opportunity.get("selection_score", 0.0) or 0.0)
+        except Exception:
+            selection_score = 0.0
+
+        liquidity_score = 0.0
+        try:
+            market_liquidity = getattr(self.market_radar, "market_liquidity", {}) or {}
+            liquidity_score = float(
+                market_liquidity.get("liquidity_score", 0.0) or 0.0
+            )
+        except Exception:
+            liquidity_score = 0.0
+
         return MarketSnapshot(
             pair=symbol,
             price=current_price,
@@ -1297,6 +1311,8 @@ class SlotController:
             market_state=str(analysis.get("market_state", "")),
             volume_state=str(analysis.get("volume", "")),
             market_score=float(analysis.get("market_score", 0.0) or 0.0),
+            selection_score=selection_score,
+            liquidity_score=liquidity_score,
         )
 
     # ========================================================

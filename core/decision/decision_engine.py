@@ -71,6 +71,8 @@ class MarketSnapshot:
     market_state: str = ""
     volume_state: str = ""
     market_score: float = 0.0
+    selection_score: float = 0.0
+    liquidity_score: float = 0.0
 
 
 # =============================================================================
@@ -566,12 +568,20 @@ class DecisionEngine:
         )
         trend_raw = _normalize_stability_value(getattr(snapshot, "trend", ""))
         momentum_raw = _normalize_stability_value(getattr(snapshot, "momentum", ""))
+        volume_state_raw = _normalize_stability_value(
+            getattr(snapshot, "volume_state", "")
+        )
+        selection_score = float(getattr(snapshot, "selection_score", 0.0) or 0.0)
+        liquidity_score = float(getattr(snapshot, "liquidity_score", 0.0) or 0.0)
 
         logger.info(
             f"[STABILITY GATE NORMALIZED] symbol={pair} | "
             f"trend={trend_raw} | "
             f"momentum={momentum_raw} | "
-            f"market_state={market_state_raw}"
+            f"market_state={market_state_raw} | "
+            f"volume_state={volume_state_raw} | "
+            f"selection_score={selection_score:.4f} | "
+            f"liquidity_score={liquidity_score:.4f}"
         )
 
         mqii_state = ""
@@ -596,7 +606,19 @@ class DecisionEngine:
             and mqii_state != "NO_TRADE"
         )
 
-        stability_ok = normal_stability_ok or tce_stability_ok
+        premium_stability_ok = (
+            trend_raw.endswith("UPTREND")
+            and momentum_raw.endswith("BULLISH")
+            and market_state_raw == "BULLISH_STRONG"
+            and volume_state_raw == "HIGH"
+            and selection_score >= 0.85
+            and liquidity_score >= 0.75
+            and mqii_state in ("TRADE_OK", "AGGRESSIVE_OK")
+            and float(snapshot.volume_ratio) >= 1.15
+            and 50 <= float(snapshot.rsi) <= 72
+        )
+
+        stability_ok = normal_stability_ok or tce_stability_ok or premium_stability_ok
 
         if approved and not stability_ok:
             logger.info(
@@ -615,6 +637,17 @@ class DecisionEngine:
                 f"trend={trend_raw} | momentum={momentum_raw} | "
                 f"state={market_state_raw} | vol={snapshot.volume_ratio:.2f} | "
                 f"rsi={snapshot.rsi:.2f} | mqii={mqii_state}"
+            )
+
+        if approved and premium_stability_ok:
+            logger.info(
+                f"[PREMIUM STABILITY CONTEXT] LIBERADO {pair} | "
+                f"trend={trend_raw} | momentum={momentum_raw} | "
+                f"state={market_state_raw} | volume_state={volume_state_raw} | "
+                f"selection_score={selection_score:.4f} | "
+                f"liquidity_score={liquidity_score:.4f} | "
+                f"vol={snapshot.volume_ratio:.2f} | rsi={snapshot.rsi:.2f} | "
+                f"mqii={mqii_state}"
             )
 
         if not approved:

@@ -84,6 +84,7 @@ class SlotController:
 
         # COOLDOWN / REINCIDÊNCIA POR PAR (BASEADO EM TEMPO / LOSS REAL)
         self.pair_cooldowns = {}
+        self.pair_cooldown_metadata = {}
         self.pair_loss_streak = {}
         self.pair_last_loss_at = {}
 
@@ -389,6 +390,56 @@ class SlotController:
 
         return adjusted
 
+    def _set_pair_cooldown(
+        self,
+        symbol: str,
+        release_ts: float,
+        reason: str,
+        metadata=None,
+    ) -> bool:
+        symbol = self._normalize_symbol(symbol)
+        reason = str(reason or "UNKNOWN").strip().upper()
+
+        try:
+            release_ts = float(release_ts)
+        except Exception:
+            release_ts = 0.0
+
+        current_release_ts = self.pair_cooldowns.get(symbol)
+        current_metadata = self.pair_cooldown_metadata.get(symbol, {}) or {}
+
+        if current_release_ts is not None:
+            try:
+                current_release_ts = float(current_release_ts)
+            except Exception:
+                current_release_ts = 0.0
+
+            if release_ts <= current_release_ts:
+                remaining_current = max(0, int(current_release_ts - self._now_ts()))
+                remaining_new = max(0, int(release_ts - self._now_ts()))
+
+                print(
+                    f"[DRC V2] {symbol} cooldown menor ignorado | "
+                    f"current_reason={current_metadata.get('reason', 'UNKNOWN')} | "
+                    f"current_remaining={remaining_current}s | "
+                    f"new_reason={reason} | new_remaining={remaining_new}s"
+                )
+                return False
+
+        self.pair_cooldowns[symbol] = release_ts
+        self.pair_cooldown_metadata[symbol] = {
+            "reason": reason,
+            "release_ts": release_ts,
+            "metadata": metadata or {},
+        }
+
+        remaining = max(0, int(release_ts - self._now_ts()))
+        print(
+            f"[DRC V2] {symbol} cooldown atualizado | "
+            f"reason={reason} | remaining={remaining}s"
+        )
+        return True
+
     def _refresh_loss_streak_if_expired(self, symbol: str):
         symbol = self._normalize_symbol(symbol)
 
@@ -416,7 +467,16 @@ class SlotController:
         base_cooldown = self._get_cooldown_seconds_for_pair(symbol)
         cooldown_seconds = self._apply_adaptive_cooldown(symbol, base_cooldown)
         release_ts = self._now_ts() + cooldown_seconds
-        self.pair_cooldowns[symbol] = release_ts
+        self._set_pair_cooldown(
+            symbol,
+            release_ts,
+            reason="LOSS_COOLDOWN",
+            metadata={
+                "loss_streak": streak,
+                "base_cooldown": base_cooldown,
+                "cooldown_seconds": cooldown_seconds,
+            },
+        )
 
         print(
             f"[COOLDOWN] {symbol} BLOQUEADO | "
@@ -470,7 +530,16 @@ class SlotController:
         base_cooldown = self.cooldown_win
         cooldown_seconds = self._apply_adaptive_cooldown(symbol, base_cooldown)
         release_ts = self._now_ts() + cooldown_seconds
-        self.pair_cooldowns[symbol] = release_ts
+        self._set_pair_cooldown(
+            symbol,
+            release_ts,
+            reason="WIN_RECOVERY_COOLDOWN",
+            metadata={
+                "base_cooldown": base_cooldown,
+                "cooldown_seconds": cooldown_seconds,
+                "loss_streak": self.pair_loss_streak.get(symbol, 0),
+            },
+        )
 
         print(
             f"[COOLDOWN] {symbol} BLOQUEADO APÓS WIN | " f"cooldown={cooldown_seconds}s"
@@ -693,7 +762,19 @@ class SlotController:
         # 1) STOP muito rápido = provável erro de timing / virada brusca
         if pnl_usdc < 0 and duration_seconds <= self.drc_fast_stop_seconds:
             release_ts = self._now_ts() + self.drc_fast_stop_cooldown
-            self.pair_cooldowns[symbol] = release_ts
+            self._set_pair_cooldown(
+                symbol,
+                release_ts,
+                reason="DRC_FAST_STOP",
+                metadata={
+                    "pnl_usdc": pnl_usdc,
+                    "pnl_pct": pnl_pct,
+                    "duration_seconds": duration_seconds,
+                    "exit_reason": str(reason),
+                    "mqii_state": drc_mqii_state,
+                    "liquidity_score": drc_liquidity_score,
+                },
+            )
 
             print(
                 f"[DRC] {symbol} FAST STOP | "
@@ -706,7 +787,19 @@ class SlotController:
         # 2) STOP curto = bloqueio intermediário
         if pnl_usdc < 0 and duration_seconds <= self.drc_quick_stop_seconds:
             release_ts = self._now_ts() + self.drc_quick_stop_cooldown
-            self.pair_cooldowns[symbol] = release_ts
+            self._set_pair_cooldown(
+                symbol,
+                release_ts,
+                reason="DRC_QUICK_STOP",
+                metadata={
+                    "pnl_usdc": pnl_usdc,
+                    "pnl_pct": pnl_pct,
+                    "duration_seconds": duration_seconds,
+                    "exit_reason": str(reason),
+                    "mqii_state": drc_mqii_state,
+                    "liquidity_score": drc_liquidity_score,
+                },
+            )
 
             print(
                 f"[DRC] {symbol} QUICK STOP | "
@@ -719,7 +812,20 @@ class SlotController:
         # 3) lucro forte = exaustão, sem reentrada imediata
         if pnl_usdc > 0 and pnl_pct >= dynamic_exhaustion_pct:
             release_ts = self._now_ts() + self.drc_exhaustion_cooldown
-            self.pair_cooldowns[symbol] = release_ts
+            self._set_pair_cooldown(
+                symbol,
+                release_ts,
+                reason="DRC_EXHAUSTION",
+                metadata={
+                    "pnl_usdc": pnl_usdc,
+                    "pnl_pct": pnl_pct,
+                    "duration_seconds": duration_seconds,
+                    "exit_reason": str(reason),
+                    "mqii_state": drc_mqii_state,
+                    "liquidity_score": drc_liquidity_score,
+                    "dynamic_exhaustion_pct": dynamic_exhaustion_pct,
+                },
+            )
 
             print(
                 f"[DRC] {symbol} EXAUSTÃO | "
@@ -732,7 +838,20 @@ class SlotController:
         # 4) lucro bom/saudável = cooldown menor, mas ainda protetivo
         if pnl_usdc > 0 and pnl_pct >= dynamic_good_profit_pct:
             release_ts = self._now_ts() + self.drc_good_profit_cooldown
-            self.pair_cooldowns[symbol] = release_ts
+            self._set_pair_cooldown(
+                symbol,
+                release_ts,
+                reason="DRC_GOOD_PROFIT",
+                metadata={
+                    "pnl_usdc": pnl_usdc,
+                    "pnl_pct": pnl_pct,
+                    "duration_seconds": duration_seconds,
+                    "exit_reason": str(reason),
+                    "mqii_state": drc_mqii_state,
+                    "liquidity_score": drc_liquidity_score,
+                    "dynamic_good_profit_pct": dynamic_good_profit_pct,
+                },
+            )
 
             print(
                 f"[DRC] {symbol} GOOD PROFIT | "
@@ -755,10 +874,16 @@ class SlotController:
 
         if now >= release_ts:
             self.pair_cooldowns.pop(symbol, None)
+            self.pair_cooldown_metadata.pop(symbol, None)
             return False
 
         remaining = int(release_ts - now)
-        print(f"[COOLDOWN] {symbol} ainda bloqueado por {remaining}s")
+        metadata = self.pair_cooldown_metadata.get(symbol, {}) or {}
+        reason = metadata.get("reason", "UNKNOWN")
+        print(
+            f"[COOLDOWN] {symbol} ainda bloqueado por {remaining}s | "
+            f"reason={reason}"
+        )
         return True
 
     # ========================================================

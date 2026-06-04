@@ -415,6 +415,27 @@ class MarketRadarEngine:
                 f"rsi={rsi_value} | "
                 f"reason={score_reason}"
             )
+
+            ranking_context = item.get("ranking_context") or {}
+            approval_reasons = ranking_context.get("approval_reasons") or []
+            context_bridge_ok = (
+                isinstance(ranking_context, dict)
+                and ranking_context.get("contextual_approval") is True
+                and "LOW_MARKET_SCORE_RANKING_APPROVED" in approval_reasons
+                and ranking_context.get("no_effect") is True
+                and ranking_context.get("authority") == "context_only"
+            )
+
+            if context_bridge_ok:
+                print(
+                    f"[RADAR CONTEXT BRIDGE] "
+                    f"symbol={symbol} | "
+                    f"reason=LOW_MARKET_SCORE_RANKING_APPROVED | "
+                    f"action=FORWARD_TO_SELECTION | "
+                    f"no_effect=True"
+                )
+                return True
+
             self._count_radar_rejection("SCORE_BAIXO")
             return False
 

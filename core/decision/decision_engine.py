@@ -610,7 +610,7 @@ class DecisionEngine:
 
         stability_ok = normal_stability_ok or tce_stability_ok or premium_stability_ok
 
-        logger.info(
+        print(
             f"[STABILITY GATE NORMALIZED] pair={pair} | "
             f"trend_raw={trend_raw} | "
             f"momentum_raw={momentum_raw} | "

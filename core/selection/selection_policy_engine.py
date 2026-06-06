@@ -96,6 +96,16 @@ class SelectionPolicyEngine:
     # -------------------------------------------------------------------------
 
     def evaluate(self, token) -> SelectionDecision:
+        ranking_context = token.get("ranking_context") or {}
+
+        if isinstance(ranking_context, dict):
+            print(
+                f"[SELECTION RANKING CONTEXT RECEIVED] "
+                f"symbol={token.get('symbol')} | "
+                f"approval_reasons={ranking_context.get('approval_reasons', [])} | "
+                f"no_effect={ranking_context.get('no_effect', True)} | "
+                f"authority={ranking_context.get('authority', 'context_only')}"
+            )
 
         # =========================
         # BUILD INPUT

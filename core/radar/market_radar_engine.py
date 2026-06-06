@@ -845,7 +845,7 @@ class MarketRadarEngine:
             # =========================================================
             # SELECTION POLICY ENGINE (FILTRO SOBERANO)
             # =========================================================
-            selection_decision = self.selection_engine.evaluate(item)
+            selection_decision = self.selection_engine.evaluate(adjusted_item)
             adjusted_item["selection_score"] = selection_decision.final_score
 
             if not selection_decision.approved:
@@ -992,6 +992,20 @@ class MarketRadarEngine:
                     and (market_state == "SIDEWAYS" or momentum_state == "NEUTRAL")
                     and not contextual_mce_survival
                 ):
+                    ranking_context = adjusted_item.get("ranking_context") or {}
+                    print(
+                        f"[MCE CONTEXT HOLD] "
+                        f"symbol={symbol} | "
+                        f"ranking_reasons={ranking_context.get('approval_reasons', [])} | "
+                        f"selection_score={selection_score:.4f} | "
+                        f"liquidity_score={liquidity_score:.4f} | "
+                        f"trend={trend_state} | "
+                        f"momentum={momentum_state} | "
+                        f"market_state={market_state} | "
+                        f"volume_state={volume_state} | "
+                        f"no_effect=True | "
+                        f"authority=context_only"
+                    )
                     print(
                         f"[MCE BLOCK] {symbol} bloqueado | "
                         f"state={market_state} | momentum={momentum_state}"

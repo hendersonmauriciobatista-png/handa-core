@@ -157,7 +157,7 @@ class SelectionPolicyEngine:
         # =========================
         # HARD FILTERS
         # =========================
-        hard_reasons = self._check_hard_filters(data)
+        hard_reasons = self._check_hard_filters(data, ranking_context)
         if hard_reasons:
             decision = self._build_decision(
                 data=data,
@@ -594,8 +594,13 @@ class SelectionPolicyEngine:
         normalized = str(symbol).strip().upper()
         return any(keyword in normalized for keyword in blocked_keywords)
 
-    def _check_hard_filters(self, data: SelectionInput) -> List[str]:
+    def _check_hard_filters(
+        self,
+        data: SelectionInput,
+        ranking_context=None,
+    ) -> List[str]:
         reasons: List[str] = []
+        ranking_context = ranking_context if isinstance(ranking_context, dict) else {}
 
         if self._check_symbol_block(data.symbol):
             reasons.append("SYMBOL_BLOCKED")
@@ -604,7 +609,37 @@ class SelectionPolicyEngine:
             reasons.append("RSI_EXTREMO")
 
         if data.volume_ratio >= 4.0:
-            reasons.append("VOLUME_EXTREMO")
+            approval_reasons = ranking_context.get("approval_reasons") or []
+
+            trend_value = getattr(data.trend, "value", data.trend)
+            momentum_value = getattr(data.momentum, "value", data.momentum)
+            market_state_value = getattr(
+                data.market_state,
+                "value",
+                data.market_state,
+            )
+
+            volume_extreme_context_aligned = (
+                "VOLUME_EXTREME_VALID" in approval_reasons
+                and trend_value == "UPTREND"
+                and momentum_value == "BULLISH"
+                and 45 <= data.rsi <= 68
+                and data.market_score >= 8
+                and market_state_value in ("BULLISH", "BULLISH_STRONG")
+            )
+
+            if volume_extreme_context_aligned:
+                print(
+                    f"[VOLUME EXTREME ALIGNMENT] "
+                    f"symbol={data.symbol} | "
+                    f"classification=HIGH_RISK_CONTEXT | "
+                    f"volume_ratio={data.volume_ratio:.4f} | "
+                    f"market_score={data.market_score:.2f} | "
+                    f"action=FORWARD_TO_REMAINING_GATES | "
+                    f"no_effect=True"
+                )
+            else:
+                reasons.append("VOLUME_EXTREMO")
 
         return reasons
 

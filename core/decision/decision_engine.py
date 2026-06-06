@@ -574,16 +574,6 @@ class DecisionEngine:
         selection_score = float(getattr(snapshot, "selection_score", 0.0) or 0.0)
         liquidity_score = float(getattr(snapshot, "liquidity_score", 0.0) or 0.0)
 
-        logger.info(
-            f"[STABILITY GATE NORMALIZED] symbol={pair} | "
-            f"trend={trend_raw} | "
-            f"momentum={momentum_raw} | "
-            f"market_state={market_state_raw} | "
-            f"volume_state={volume_state_raw} | "
-            f"selection_score={selection_score:.4f} | "
-            f"liquidity_score={liquidity_score:.4f}"
-        )
-
         mqii_state = ""
 
         try:
@@ -619,6 +609,25 @@ class DecisionEngine:
         )
 
         stability_ok = normal_stability_ok or tce_stability_ok or premium_stability_ok
+
+        logger.info(
+            f"[STABILITY GATE NORMALIZED] pair={pair} | "
+            f"trend_raw={trend_raw} | "
+            f"momentum_raw={momentum_raw} | "
+            f"market_state_raw={market_state_raw} | "
+            f"volume_state_raw={volume_state_raw} | "
+            f"mqii_state={mqii_state} | "
+            f"liquidity_score={liquidity_score:.4f} | "
+            f"selection_score={selection_score:.4f} | "
+            f"volume_ratio={float(snapshot.volume_ratio):.4f} | "
+            f"rsi={float(snapshot.rsi):.2f} | "
+            f"normal_stability_ok={normal_stability_ok} | "
+            f"tce_stability_ok={tce_stability_ok} | "
+            f"premium_stability_ok={premium_stability_ok} | "
+            f"stability_ok={stability_ok} | "
+            f"no_effect=True | "
+            f"authority=decision_only"
+        )
 
         if approved and not stability_ok:
             logger.info(

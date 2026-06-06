@@ -1620,6 +1620,18 @@ class SlotController:
                     attempted_symbols.add(symbol)
                     signal = self._decision_engine.evaluate_buy(snapshot)
 
+                if signal:
+                    decision_reason = ",".join(
+                        str(reason)
+                        for reason in (getattr(signal, "reasons", None) or [])
+                    ) or "BUY_SIGNAL_APPROVED"
+                    print(
+                        f"[BUY TRACE] stage=DECISION_APPROVED | "
+                        f"symbol={symbol} | reason={decision_reason} | "
+                        f"confidence={float(getattr(signal, 'confidence', 0.0)):.3f} | "
+                        f"no_effect=True"
+                    )
+
                 if not signal:
                     decision_rejection_reason = "UNKNOWN"
                     decision_rejection_detail = ""
@@ -1694,6 +1706,11 @@ class SlotController:
                             or not vision.inference
                         ):
                             print(f"[ALO GATE] visão inválida para {symbol}")
+                            print(
+                                f"[BUY TRACE] stage=POST_DECISION_GATE_BLOCKED | "
+                                f"symbol={symbol} | gate=ALO_VISION | "
+                                f"reason=INVALID_VISION | no_effect=True"
+                            )
                             signal = None
                             self._block_rejected_symbol(symbol, cycles=1)
                             continue
@@ -1725,6 +1742,11 @@ class SlotController:
                                 print(
                                     f"[ALO GATE] BLOQUEADO {symbol} | "
                                     f"motivo=BAIXA_CONFIANCA | conf={confidence}"
+                                )
+                                print(
+                                    f"[BUY TRACE] stage=POST_DECISION_GATE_BLOCKED | "
+                                    f"symbol={symbol} | gate=ALO_VISION_CONFIDENCE | "
+                                    f"reason={confidence} | no_effect=True"
                                 )
 
                                 self._block_rejected_symbol(symbol, cycles=1)
@@ -1762,11 +1784,21 @@ class SlotController:
                                 f"[ALO GATE] BLOQUEADO NO CICLO {symbol} | "
                                 f"guide={guide} | conf={confidence} | mqii={mqii_state}"
                             )
+                            print(
+                                f"[BUY TRACE] stage=POST_DECISION_GATE_BLOCKED | "
+                                f"symbol={symbol} | gate=ALO_MQII_CONSENSUS | "
+                                f"reason={guide}_{mqii_state} | no_effect=True"
+                            )
 
                             signal = None
 
                 except Exception as e:
                     print(f"[ALO GATE ERROR] {e}")
+                    print(
+                        f"[BUY TRACE] stage=POST_DECISION_GATE_BLOCKED | "
+                        f"symbol={symbol} | gate=ALO_GATE_ERROR | "
+                        f"reason={e} | no_effect=True"
+                    )
                     signal = None
                     self._block_rejected_symbol(symbol, cycles=1)
 
@@ -1776,11 +1808,21 @@ class SlotController:
                 if signal:
                     if self._is_pair_blocked(symbol):
                         print(f"[POST-CHECK BLOCK] {symbol} bloqueado por cooldown")
+                        print(
+                            f"[BUY TRACE] stage=POST_DECISION_GATE_BLOCKED | "
+                            f"symbol={symbol} | gate=PAIR_COOLDOWN | "
+                            f"reason=PAIR_BLOCKED | no_effect=True"
+                        )
                         signal = None
 
                     elif self._is_rejected_symbol_blocked(symbol):
                         print(
                             f"[POST-CHECK BLOCK] {symbol} bloqueado por rejection cooldown"
+                        )
+                        print(
+                            f"[BUY TRACE] stage=POST_DECISION_GATE_BLOCKED | "
+                            f"symbol={symbol} | gate=REJECTION_COOLDOWN | "
+                            f"reason=REJECTED_SYMBOL_BLOCKED | no_effect=True"
                         )
                         signal = None
 
@@ -1918,6 +1960,11 @@ class SlotController:
                                 f"[ALO INTEL GATE] BLOQUEADO {symbol} | "
                                 f"guidance={guidance.guidance.value}"
                             )
+                            print(
+                                f"[BUY TRACE] stage=POST_DECISION_GATE_BLOCKED | "
+                                f"symbol={symbol} | gate=ALO_INTELLIGENT | "
+                                f"reason={guidance.guidance.value} | no_effect=True"
+                            )
                             signal = None
                             self._block_rejected_symbol(symbol, cycles=2)
 
@@ -1934,6 +1981,12 @@ class SlotController:
                                     f"[ALO INTEL GATE] CONFIRMAÇÃO INSUFICIENTE {symbol} | "
                                     f"guidance={guidance.guidance.value} | "
                                     f"selection_score={selection_score:.4f}"
+                                )
+                                print(
+                                    f"[BUY TRACE] stage=POST_DECISION_GATE_BLOCKED | "
+                                    f"symbol={symbol} | gate=ALO_INTELLIGENT | "
+                                    f"reason=REQUIRE_STRONGER_CONFIRMATION | "
+                                    f"no_effect=True"
                                 )
                                 signal = None
                                 self._block_rejected_symbol(symbol, cycles=1)
@@ -1952,6 +2005,11 @@ class SlotController:
                     if symbol in pairs_in_use:
 
                         print(f"[SYMBOL LOCK] {symbol} " f"bloqueado (já em uso)")
+                        print(
+                            f"[BUY TRACE] stage=POST_DECISION_GATE_BLOCKED | "
+                            f"symbol={symbol} | gate=SYMBOL_IN_USE | "
+                            f"reason=PAIR_ALREADY_RESERVED | no_effect=True"
+                        )
 
                         continue
 
@@ -1962,6 +2020,11 @@ class SlotController:
                     if symbol in self.symbol_execution_lock:
 
                         print(f"[EXECUTION LOCK] {symbol} já está travado")
+                        print(
+                            f"[BUY TRACE] stage=POST_DECISION_GATE_BLOCKED | "
+                            f"symbol={symbol} | gate=EXECUTION_LOCK | "
+                            f"reason=SYMBOL_ALREADY_LOCKED | no_effect=True"
+                        )
                         continue
 
                     # ======================================================
@@ -1981,6 +2044,10 @@ class SlotController:
                     self.symbol_execution_lock.add(symbol)
 
                     print(f"[SLOT DEBUG] CANDIDATO APROVADO: {symbol}")
+                    print(
+                        f"[BUY TRACE] stage=POST_DECISION_GATES_PASSED | "
+                        f"symbol={symbol} | no_effect=True"
+                    )
 
                     approved_candidates.append((symbol, signal))
 
@@ -2133,6 +2200,10 @@ class SlotController:
 
                 slot.pair = symbol
                 slot.pending_buy_signal = signal
+                print(
+                    f"[BUY TRACE] stage=SLOT_ASSIGNED | symbol={symbol} | "
+                    f"slot_id={slot.slot_id} | state={slot.state} | no_effect=True"
+                )
                 slot.start_analysis()
                 pairs_in_use.add(symbol)
                 self._unblock_rejected_symbol(symbol)
@@ -2228,20 +2299,39 @@ class SlotController:
 
     def _execute_buy(self, slot):
 
+        executor_called = False
+        executor_accepted = False
+
         try:
             if not self.client or not self.executor:
                 print(f"[SLOT {slot.slot_id}] BUY: executor/client não definido")
+                print(
+                    f"[BUY TRACE] stage=EXECUTE_BUY_BLOCKED | "
+                    f"symbol={getattr(slot, 'pair', None) or 'UNKNOWN'} | "
+                    f"slot_id={slot.slot_id} | gate=EXECUTOR_CLIENT_AVAILABLE | "
+                    f"reason=EXECUTOR_OR_CLIENT_UNDEFINED | no_effect=True"
+                )
                 slot.reset()
                 return
 
             if not slot.pair:
                 print(f"[SLOT {slot.slot_id}] BUY: pair inválido")
+                print(
+                    f"[BUY TRACE] stage=EXECUTE_BUY_BLOCKED | symbol=UNKNOWN | "
+                    f"slot_id={slot.slot_id} | gate=PAIR_VALIDATION | "
+                    f"reason=INVALID_PAIR | no_effect=True"
+                )
                 slot.reset()
                 return
 
             signal = getattr(slot, "pending_buy_signal", None)
             if signal is None:
                 print(f"[SLOT {slot.slot_id}] BUY: sinal pendente ausente")
+                print(
+                    f"[BUY TRACE] stage=EXECUTE_BUY_BLOCKED | symbol={slot.pair} | "
+                    f"slot_id={slot.slot_id} | gate=PENDING_SIGNAL | "
+                    f"reason=SIGNAL_MISSING | no_effect=True"
+                )
                 slot.reset()
                 return
 
@@ -2303,6 +2393,11 @@ class SlotController:
                     f"[DUPLICATE BLOCK] {slot.pair} já possui posição ativa "
                     f"— nova entrada bloqueada"
                 )
+                print(
+                    f"[BUY TRACE] stage=EXECUTE_BUY_BLOCKED | symbol={slot.pair} | "
+                    f"slot_id={slot.slot_id} | gate=DUPLICATE_POSITION | "
+                    f"reason=ACTIVE_SAME_PAIR | no_effect=True"
+                )
 
                 slot.pending_buy_signal = None
                 slot.reset()
@@ -2312,6 +2407,11 @@ class SlotController:
                 print(
                     f"[SLOT {slot.slot_id}] BUY CANCELADO NO GATE FINAL: "
                     f"{slot.pair} bloqueado por cooldown"
+                )
+                print(
+                    f"[BUY TRACE] stage=EXECUTE_BUY_BLOCKED | symbol={slot.pair} | "
+                    f"slot_id={slot.slot_id} | gate=PAIR_COOLDOWN | "
+                    f"reason=PAIR_BLOCKED | no_effect=True"
                 )
                 self._block_rejected_symbol(slot.pair, cycles=1)
                 slot.pending_buy_signal = None
@@ -2323,6 +2423,11 @@ class SlotController:
                     f"[SLOT {slot.slot_id}] BUY CANCELADO NO GATE FINAL: "
                     f"{slot.pair} bloqueado por rejection cooldown"
                 )
+                print(
+                    f"[BUY TRACE] stage=EXECUTE_BUY_BLOCKED | symbol={slot.pair} | "
+                    f"slot_id={slot.slot_id} | gate=REJECTION_COOLDOWN | "
+                    f"reason=REJECTED_SYMBOL_BLOCKED | no_effect=True"
+                )
                 slot.pending_buy_signal = None
                 slot.reset()
                 return
@@ -2331,13 +2436,22 @@ class SlotController:
                 f"[SLOT {slot.slot_id}] EXECUTING BUY {signal.pair} "
                 f"capital={signal.allocated_usdc:.4f} price={signal.entry_price:.8f}"
             )
+            print(
+                f"[BUY TRACE] stage=EXECUTE_BUY_ATTEMPT | symbol={slot.pair} | "
+                f"slot_id={slot.slot_id} | no_effect=True"
+            )
 
+            executor_called = True
             result = self.executor.execute_buy(signal)
 
             print(f"[SLOT {slot.slot_id}] BUY RESULT: {result}")
 
             if not result:
                 print(f"[SLOT {slot.slot_id}] BUY FALHOU NA EXECUÇÃO: {slot.pair}")
+                print(
+                    f"[BUY TRACE] stage=EXECUTOR_REJECTED | symbol={slot.pair} | "
+                    f"slot_id={slot.slot_id} | reason=EMPTY_RESULT | no_effect=True"
+                )
 
                 # ==========================================
                 # LC1E — EXECUTION FAILURE
@@ -2379,6 +2493,12 @@ class SlotController:
 
                 return
 
+            executor_accepted = True
+            print(
+                f"[BUY TRACE] stage=EXECUTOR_ACCEPTED | symbol={slot.pair} | "
+                f"slot_id={slot.slot_id} | no_effect=True"
+            )
+
             slot.entry_price = result.entry_price
             slot.quantity = result.quantity
             slot.pending_buy_signal = None
@@ -2401,6 +2521,19 @@ class SlotController:
 
         except Exception as e:
             print(f"[SLOT {slot.slot_id}] BUY ERROR: {e}")
+            if not executor_called:
+                print(
+                    f"[BUY TRACE] stage=EXECUTE_BUY_BLOCKED | "
+                    f"symbol={getattr(slot, 'pair', None) or 'UNKNOWN'} | "
+                    f"slot_id={slot.slot_id} | gate=PRE_EXECUTOR_EXCEPTION | "
+                    f"reason={e} | no_effect=True"
+                )
+            elif not executor_accepted:
+                print(
+                    f"[BUY TRACE] stage=EXECUTOR_REJECTED | "
+                    f"symbol={getattr(slot, 'pair', None) or 'UNKNOWN'} | "
+                    f"slot_id={slot.slot_id} | reason={e} | no_effect=True"
+                )
 
             if slot.pair:
                 self._cleanup_failed_buy(

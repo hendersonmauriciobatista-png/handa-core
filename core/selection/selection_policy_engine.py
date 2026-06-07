@@ -91,6 +91,53 @@ class SelectionPolicyEngine:
         self._last_min_score_result = None
         print("[SelectionPolicyEngine] inicializado")
 
+    def _build_veil_volume_extreme_context(self, data: SelectionInput) -> dict:
+        volume_ratio = float(data.volume_ratio or 0.0)
+        rsi = float(data.rsi or 0.0)
+        market_score = float(data.market_score or 0.0)
+
+        classification = "NORMAL"
+
+        if volume_ratio >= 4.0:
+            classification = "EXTREME"
+
+            if rsi >= 66.0 and market_score >= 8.0:
+                classification = "EXHAUSTION_RISK"
+        elif volume_ratio >= 1.5:
+            classification = "ELEVATED"
+
+        exhaustion_risk = classification == "EXHAUSTION_RISK"
+
+        return {
+            "symbol": data.symbol,
+            "classification": classification,
+            "volume_ratio": volume_ratio,
+            "rsi": rsi,
+            "market_score": market_score,
+            "exhaustion_risk": exhaustion_risk,
+            "authority": "context_only",
+            "no_effect": True,
+        }
+
+    def _log_veil_volume_extreme_context(self, context: dict):
+        if not isinstance(context, dict):
+            return
+
+        if context.get("classification") not in ("EXTREME", "EXHAUSTION_RISK"):
+            return
+
+        print(
+            f"[VEIL] "
+            f"symbol={context.get('symbol')} | "
+            f"classification={context.get('classification')} | "
+            f"volume_ratio={float(context.get('volume_ratio', 0.0)):.4f} | "
+            f"rsi={float(context.get('rsi', 0.0)):.2f} | "
+            f"market_score={float(context.get('market_score', 0.0)):.2f} | "
+            f"exhaustion_risk={context.get('exhaustion_risk', False)} | "
+            f"authority=context_only | "
+            f"no_effect=True"
+        )
+
     # -------------------------------------------------------------------------
     # PUBLIC API
     # -------------------------------------------------------------------------
@@ -111,6 +158,8 @@ class SelectionPolicyEngine:
         # BUILD INPUT
         # =========================
         data = self._build_input(token)
+        veil_context = self._build_veil_volume_extreme_context(data)
+        token["veil_volume_extreme_context"] = veil_context
 
         try:
             self._validate_input(data)
@@ -157,7 +206,11 @@ class SelectionPolicyEngine:
         # =========================
         # HARD FILTERS
         # =========================
-        hard_reasons = self._check_hard_filters(data, ranking_context)
+        hard_reasons = self._check_hard_filters(
+            data,
+            ranking_context,
+            veil_context=veil_context,
+        )
         if hard_reasons:
             decision = self._build_decision(
                 data=data,
@@ -598,6 +651,7 @@ class SelectionPolicyEngine:
         self,
         data: SelectionInput,
         ranking_context=None,
+        veil_context=None,
     ) -> List[str]:
         reasons: List[str] = []
         ranking_context = ranking_context if isinstance(ranking_context, dict) else {}
@@ -629,6 +683,8 @@ class SelectionPolicyEngine:
             )
 
             if volume_extreme_context_aligned:
+                self._log_veil_volume_extreme_context(veil_context)
+
                 print(
                     f"[VOLUME EXTREME ALIGNMENT] "
                     f"symbol={data.symbol} | "

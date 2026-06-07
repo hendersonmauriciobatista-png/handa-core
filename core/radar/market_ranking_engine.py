@@ -24,6 +24,11 @@ class MarketRankingEngine:
         self.dynamic_core_adapter = AloDynamicCoreAdapter()
         self.dynamic_core_engine = AloDynamicCoreEngine()
 
+        # RRA v2 - Ranking Awareness
+        # Consome snapshot read-only do Radar com peso reduzido.
+        # O Radar continua sendo dono da memoria RRA.
+        self.rra_ranking_awareness_weight = 0.5
+
         self._radar_summary_local = {
             "STRUCTURAL_BLOCK": 0,
             "NO_UPTREND": 0,
@@ -68,6 +73,87 @@ class MarketRankingEngine:
             return float(value)
         except Exception:
             return default
+
+    def _apply_rra_ranking_awareness(
+        self,
+        token,
+        score: float,
+        rra_awareness_snapshot=None,
+    ) -> float:
+        """
+        Consome snapshot read-only produzido pelo Radar.
+
+        Nao cria memoria, nao incrementa contador, nao expira TTL,
+        nao limpa awareness e nunca bloqueia o simbolo.
+        """
+        if not isinstance(rra_awareness_snapshot, dict):
+            return score
+
+        symbol = str(token.get("symbol") or token.get("pair") or "").strip().upper()
+        if not symbol:
+            return score
+
+        awareness = rra_awareness_snapshot.get(symbol)
+        if not isinstance(awareness, dict):
+            return score
+
+        score_before = self._safe_float(score, 0.0)
+        base_penalty = self._safe_float(awareness.get("base_penalty", 0.0), 0.0)
+
+        premium_threshold = self._safe_float(
+            awareness.get("premium_score_threshold", 0.85),
+            0.85,
+        )
+        premium_penalty_cap = self._safe_float(
+            awareness.get("premium_penalty_cap", 0.03),
+            0.03,
+        )
+
+        awareness_weight = self._safe_float(
+            getattr(self, "rra_ranking_awareness_weight", 0.5),
+            0.5,
+        )
+        awareness_weight = max(0.0, min(1.0, awareness_weight))
+
+        ranking_penalty = max(0.0, base_penalty * awareness_weight)
+        ranking_premium_cap = max(0.0, premium_penalty_cap * awareness_weight)
+
+        if score_before >= premium_threshold:
+            ranking_penalty = min(ranking_penalty, ranking_premium_cap)
+
+        score_after = max(0.0, score_before - ranking_penalty)
+
+        token["rra_ranking_awareness"] = {
+            "source": awareness.get("source", "MarketRadarEngine.RRA"),
+            "authority": "context_only",
+            "classification": awareness.get(
+                "classification",
+                "RECENT_SELECTION_REJECTION_SAME_CONTEXT",
+            ),
+            "score_before": score_before,
+            "score_after": score_after,
+            "base_penalty": base_penalty,
+            "ranking_penalty": ranking_penalty,
+            "awareness_weight": awareness_weight,
+            "rejection_count": int(awareness.get("rejection_count", 0) or 0),
+            "remaining_seconds": awareness.get("remaining_seconds"),
+            "no_direct_buy_sell_effect": True,
+        }
+
+        print(
+            f"[RRA RANKING AWARENESS] "
+            f"symbol={symbol} | "
+            f"score_before={score_before:.4f} | "
+            f"score_after={score_after:.4f} | "
+            f"base_penalty={base_penalty:.4f} | "
+            f"ranking_penalty={ranking_penalty:.4f} | "
+            f"weight={awareness_weight:.2f} | "
+            f"rejection_count={int(awareness.get('rejection_count', 0) or 0)} | "
+            f"authority=context_only | "
+            f"no_direct_buy_sell_effect=True"
+        )
+
+        return score_after
 
     def _log_non_execution(self, token, reason, summary):
 
@@ -164,7 +250,7 @@ class MarketRankingEngine:
     # REFINE
     # ========================================================
 
-    def refine(self, opportunities):
+    def refine(self, opportunities, rra_awareness_snapshot=None):
 
         if not opportunities:
             return []
@@ -692,6 +778,12 @@ class MarketRankingEngine:
                 # ------------------------------------------------
                 if market_score < 1.0:
                     approval_reasons.append("LOW_MARKET_SCORE_RANKING_APPROVED")
+
+                score = self._apply_rra_ranking_awareness(
+                    token=token,
+                    score=score,
+                    rra_awareness_snapshot=rra_awareness_snapshot,
+                )
 
                 token["score"] = round(score, 4)
 

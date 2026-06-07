@@ -353,6 +353,64 @@ class MarketRadarEngine:
 
         return adjusted_item
 
+    def _build_rra_ranking_awareness_snapshot(self, opportunities):
+        """
+        Snapshot read-only para o Ranking.
+
+        O Radar continua sendo dono da memoria RRA.
+        Este metodo nao expira, nao limpa, nao incrementa e nao bloqueia simbolos.
+        """
+        snapshot = {}
+
+        if opportunities:
+            now = time.time()
+
+            for item in opportunities:
+                symbol = self._safe_symbol(item.get("symbol") or item.get("pair"))
+                awareness = (
+                    self.selection_rejection_awareness.get(symbol)
+                    if symbol
+                    else None
+                )
+
+                if symbol and isinstance(awareness, dict):
+                    expires_at = self._to_float(
+                        awareness.get("expires_at", 0.0),
+                        default=0.0,
+                    )
+
+                    if expires_at > now:
+                        current_signature = self._rra_context_signature(item)
+                        previous_signature = awareness.get("context_signature")
+
+                        if current_signature == previous_signature:
+                            rejection_count = int(
+                                awareness.get("rejection_count", 0) or 0
+                            )
+                            base_penalty = self._get_rra_selection_penalty(
+                                rejection_count=rejection_count,
+                                score_before=0.0,
+                            )
+
+                            snapshot[symbol] = {
+                                "source": "MarketRadarEngine.RRA",
+                                "authority": "context_only",
+                                "classification": (
+                                    "RECENT_SELECTION_REJECTION_SAME_CONTEXT"
+                                ),
+                                "rejection_count": rejection_count,
+                                "base_penalty": base_penalty,
+                                "premium_score_threshold": (
+                                    self.rra_premium_score_threshold
+                                ),
+                                "premium_penalty_cap": self.rra_premium_penalty_cap,
+                                "remaining_seconds": max(0, int(expires_at - now)),
+                                "reasons": list(awareness.get("reasons", []) or []),
+                                "no_direct_buy_sell_effect": True,
+                            }
+
+        return snapshot
+
     def _normalize_symbol_set(
         self, values: Optional[Iterable], default_cycles: int = 1
     ):
@@ -1466,7 +1524,13 @@ class MarketRadarEngine:
                 self._reset_radar_summary()
 
                 raw_ranking = self.scanner.scan()
-                refined, ranking_market_snapshot = self.rank_engine.refine(raw_ranking)
+                rra_awareness_snapshot = self._build_rra_ranking_awareness_snapshot(
+                    raw_ranking
+                )
+                refined, ranking_market_snapshot = self.rank_engine.refine(
+                    raw_ranking,
+                    rra_awareness_snapshot=rra_awareness_snapshot,
+                )
 
                 ranking_summary = getattr(
                     self.rank_engine, "_radar_summary_local", None

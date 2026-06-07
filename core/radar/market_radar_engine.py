@@ -99,6 +99,23 @@ class MarketRadarEngine:
         self.penalty_score_weight = 0.20
         self.block_last_traded_symbol = True
 
+        # ----------------------------------------------------
+        # RRA v1 - Rejection Recycling Awareness
+        # Memoria local, temporaria e nao-bloqueante para
+        # depriorizar simbolos rejeitados recentemente pela Selection
+        # quando retornam sem mudanca estrutural relevante.
+        # ----------------------------------------------------
+        self.selection_rejection_awareness: Dict[str, dict] = {}
+        self.rra_selection_rejection_ttl_seconds = 45
+        self.rra_selection_score_penalties = {
+            1: 0.02,
+            2: 0.04,
+            3: 0.06,
+        }
+        self.rra_selection_score_penalty_cap = 0.06
+        self.rra_premium_score_threshold = 0.85
+        self.rra_premium_penalty_cap = 0.03
+
         # parâmetros de qualidade
         self.min_market_score = 1.0
         self.min_volume_ratio = 0.65
@@ -179,6 +196,162 @@ class MarketRadarEngine:
             return str(symbol).strip().upper()
         except Exception:
             return ""
+
+    def _rra_bucket(self, value, step: float, default: float = 0.0):
+        try:
+            value = float(value)
+            step = float(step)
+            if step <= 0:
+                return default
+            return round(value / step) * step
+        except Exception:
+            return default
+
+    def _rra_context_signature(self, item) -> tuple:
+        analysis = item.get("analysis") or {}
+        snapshot = item.get("snapshot")
+
+        rsi_value = self._to_float(
+            analysis.get("rsi", getattr(snapshot, "rsi_14", 0.0) if snapshot else 0.0),
+            default=0.0,
+        )
+        volume_ratio = self._to_float(
+            analysis.get(
+                "volume_ratio",
+                getattr(snapshot, "volume_ratio", 0.0) if snapshot else 0.0,
+            ),
+            default=0.0,
+        )
+        market_score = self._to_float(analysis.get("market_score", 0.0), default=0.0)
+
+        return (
+            self._safe_upper(analysis.get("trend")),
+            self._safe_upper(analysis.get("momentum")),
+            self._safe_upper(analysis.get("market_state")),
+            self._safe_upper(analysis.get("volume")),
+            self._rra_bucket(rsi_value, 5.0),
+            self._rra_bucket(volume_ratio, 0.25),
+            self._rra_bucket(market_score, 0.5),
+        )
+
+    def _get_rra_selection_penalty(
+        self,
+        rejection_count: int,
+        score_before: float,
+    ) -> float:
+        try:
+            rejection_count = max(1, int(rejection_count))
+        except Exception:
+            rejection_count = 1
+
+        penalty = self.rra_selection_score_penalties.get(
+            rejection_count,
+            self.rra_selection_score_penalty_cap,
+        )
+        penalty = min(float(penalty), self.rra_selection_score_penalty_cap)
+
+        if score_before >= self.rra_premium_score_threshold:
+            penalty = min(penalty, self.rra_premium_penalty_cap)
+
+        return max(0.0, penalty)
+
+    def _clear_rra_selection_awareness(self, symbol: str, reason: str):
+        symbol = self._safe_symbol(symbol)
+        if not symbol:
+            return
+
+        if self.selection_rejection_awareness.pop(symbol, None) is not None:
+            print(
+                f"[RRA] event=CLEAR_AWARENESS | symbol={symbol} | "
+                f"reason={reason} | no_direct_buy_sell_effect=True"
+            )
+
+    def _register_rra_selection_rejection(self, item, selection_decision):
+        symbol = self._safe_symbol(item.get("symbol"))
+        if not symbol:
+            return
+
+        reasons = [
+            str(reason).strip().upper()
+            for reason in (getattr(selection_decision, "rejection_reasons", None) or [])
+            if str(reason).strip()
+        ]
+
+        previous = self.selection_rejection_awareness.get(symbol, {}) or {}
+        rejection_count = int(previous.get("rejection_count", 0) or 0) + 1
+
+        self.selection_rejection_awareness[symbol] = {
+            "expires_at": time.time() + self.rra_selection_rejection_ttl_seconds,
+            "context_signature": self._rra_context_signature(item),
+            "reasons": reasons,
+            "selection_score": self._to_float(
+                getattr(selection_decision, "final_score", 0.0),
+                default=0.0,
+            ),
+            "rejection_count": rejection_count,
+        }
+
+        print(
+            f"[RRA] event=SELECTION_REJECTION_RECORDED | "
+            f"symbol={symbol} | "
+            f"rejection_count={rejection_count} | "
+            f"reasons={','.join(reasons) or 'UNKNOWN'} | "
+            f"ttl_seconds={self.rra_selection_rejection_ttl_seconds} | "
+            f"no_direct_buy_sell_effect=True"
+        )
+
+    def _apply_rra_deprioritization(self, item):
+        symbol = self._safe_symbol(item.get("symbol"))
+        if not symbol:
+            return item
+
+        awareness = self.selection_rejection_awareness.get(symbol)
+        if not isinstance(awareness, dict):
+            return item
+
+        expires_at = self._to_float(awareness.get("expires_at", 0.0), default=0.0)
+        if expires_at <= time.time():
+            self._clear_rra_selection_awareness(symbol, "EXPIRED")
+            return item
+
+        current_signature = self._rra_context_signature(item)
+        previous_signature = awareness.get("context_signature")
+
+        if current_signature != previous_signature:
+            self._clear_rra_selection_awareness(symbol, "STRUCTURAL_CHANGE_DETECTED")
+            return item
+
+        score_before = self._to_float(item.get("score", 0.0), default=0.0)
+        rejection_count = int(awareness.get("rejection_count", 0) or 0)
+        penalty = self._get_rra_selection_penalty(
+            rejection_count=rejection_count,
+            score_before=score_before,
+        )
+        score_after = max(0.0, score_before - penalty)
+
+        adjusted_item = dict(item)
+        adjusted_item["score"] = score_after
+        adjusted_item["rra_context"] = {
+            "classification": "RECENT_SELECTION_REJECTION_SAME_CONTEXT",
+            "score_before": score_before,
+            "score_after": score_after,
+            "penalty": penalty,
+            "rejection_count": rejection_count,
+            "no_direct_buy_sell_effect": True,
+        }
+
+        print(
+            f"[RRA] event=DEPRIORITIZED | "
+            f"symbol={symbol} | "
+            f"score_before={score_before:.4f} | "
+            f"score_after={score_after:.4f} | "
+            f"penalty={penalty:.4f} | "
+            f"rejection_count={rejection_count} | "
+            f"reason=RECENT_SELECTION_REJECTION_SAME_CONTEXT | "
+            f"no_direct_buy_sell_effect=True"
+        )
+
+        return adjusted_item
 
     def _normalize_symbol_set(
         self, values: Optional[Iterable], default_cycles: int = 1
@@ -820,6 +993,7 @@ class MarketRadarEngine:
                 continue
 
             adjusted_item = self._apply_penalty_to_item(item)
+            adjusted_item = self._apply_rra_deprioritization(adjusted_item)
 
             # =========================================================
             # 🔥 INJETAR CONTEXTO DE MERCADO (CRÍTICO)
@@ -878,18 +1052,28 @@ class MarketRadarEngine:
                 )
 
                 if not selection_override_allowed:
+                    self._register_rra_selection_rejection(
+                        adjusted_item,
+                        selection_decision,
+                    )
                     print(
                         f"[SELECTION FILTER] {symbol} REJEITADO | "
                         f"motivos={','.join(selection_decision.rejection_reasons)}"
                     )
                     continue
                 else:
+                    self._clear_rra_selection_awareness(
+                        symbol,
+                        "SELECTION_OVERRIDE_ALLOWED",
+                    )
                     print(
                         f"[SELECTION FILTER] {symbol} LIBERAÇÃO CONTROLADA | "
                         f"selection_score={selection_decision.final_score:.4f} | "
                         f"trend={trend_state} | momentum={momentum_state} | "
                         f"volume_ratio={volume_ratio:.2f} | rsi={rsi_value:.2f}"
                     )
+            else:
+                self._clear_rra_selection_awareness(symbol, "SELECTION_APPROVED")
 
             # ========================================================
             # 🔥 MCE SOFT FILTER — NÃO BLOQUEAR TOTALMENTE

@@ -128,6 +128,7 @@ def run():
 
     decision_engine.set_system_context_provider(slot_controller)
     decision_engine.set_position_manager(position_manager)
+    position_manager.decision_engine = decision_engine
 
     print("[HEADLESS] SlotController conectado")
 

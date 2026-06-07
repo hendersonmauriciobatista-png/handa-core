@@ -269,6 +269,146 @@ class SlotController:
 
         return state
 
+    def get_drc_state_snapshot(self, symbol: str) -> dict:
+        """
+        Snapshot passivo/read-only do estado DRC por simbolo.
+
+        Nao cria cooldown, nao limpa cooldown, nao altera memoria,
+        nao bloqueia simbolo e nao participa da decisao de BUY/SELL.
+        """
+        normalized = self._normalize_symbol(symbol)
+        now = self._now_ts()
+
+        cooldown_metadata = {}
+        release_ts = None
+        remaining_seconds = 0
+        cooldown_active = False
+        cooldown_reason = "NONE"
+
+        if normalized:
+            release_ts = self.pair_cooldowns.get(normalized)
+            cooldown_metadata = dict(
+                self.pair_cooldown_metadata.get(normalized, {}) or {}
+            )
+
+            try:
+                if release_ts is not None:
+                    remaining_seconds = max(0, int(float(release_ts) - now))
+            except Exception:
+                remaining_seconds = 0
+
+            cooldown_active = remaining_seconds > 0
+            cooldown_reason = str(
+                cooldown_metadata.get("reason")
+                or ("PAIR_COOLDOWN_ACTIVE" if cooldown_active else "NONE")
+            ).strip().upper()
+
+        loss_streak = 0
+        try:
+            loss_streak = int(self.pair_loss_streak.get(normalized, 0) or 0)
+        except Exception:
+            loss_streak = 0
+
+        adaptive_state = {}
+        try:
+            adaptive_state = dict(self.pair_adaptive_state.get(normalized, {}) or {})
+        except Exception:
+            adaptive_state = {}
+
+        adaptive_factor = 1.0
+        try:
+            adaptive_factor = float(adaptive_state.get("factor", 1.0) or 1.0)
+        except Exception:
+            adaptive_factor = 1.0
+
+        position_memory = {}
+        try:
+            if self.position_manager:
+                position_memory = dict(
+                    getattr(self.position_manager, "drc_memory", {}).get(
+                        normalized,
+                        {},
+                    )
+                    or {}
+                )
+        except Exception:
+            position_memory = {}
+
+        decision_memory_available = False
+        decision_last_symbol = ""
+        last_trade_duration = position_memory.get("last_duration_seconds")
+        last_trade_reason = position_memory.get("last_exit_reason")
+        last_trade_failure_type = None
+        last_trade_was_loss = (
+            str(position_memory.get("last_trade_result", "")).upper() == "LOSS"
+            if position_memory
+            else None
+        )
+
+        try:
+            if self._decision_engine:
+                decision_last_symbol = self._normalize_symbol(
+                    getattr(self._decision_engine, "last_traded_symbol", "")
+                )
+
+                if decision_last_symbol == normalized:
+                    decision_memory_available = True
+                    last_trade_duration = getattr(
+                        self._decision_engine,
+                        "last_trade_duration",
+                        last_trade_duration,
+                    )
+                    last_trade_reason = getattr(
+                        self._decision_engine,
+                        "last_trade_reason",
+                        last_trade_reason,
+                    )
+                    last_trade_failure_type = getattr(
+                        self._decision_engine,
+                        "last_trade_failure_type",
+                        None,
+                    )
+                    last_trade_was_loss = getattr(
+                        self._decision_engine,
+                        "last_trade_was_loss",
+                        last_trade_was_loss,
+                    )
+        except Exception:
+            decision_memory_available = False
+
+        return {
+            "symbol": normalized,
+            "cooldown_active": bool(cooldown_active),
+            "remaining_seconds": int(remaining_seconds),
+            "cooldown_reason": cooldown_reason,
+            "loss_streak": loss_streak,
+            "adaptive_factor": adaptive_factor,
+            "last_trade_duration": last_trade_duration,
+            "last_trade_reason": last_trade_reason,
+            "last_trade_failure_type": last_trade_failure_type,
+            "last_trade_was_loss": last_trade_was_loss,
+            "metadata": {
+                "cooldown": cooldown_metadata,
+                "adaptive_state": adaptive_state,
+                "position_memory": {
+                    "recent_trades": position_memory.get("recent_trades"),
+                    "recent_failures": position_memory.get("recent_failures"),
+                    "recent_wins": position_memory.get("recent_wins"),
+                    "last_trade_result": position_memory.get("last_trade_result"),
+                    "last_pnl_pct": position_memory.get("last_pnl_pct"),
+                    "last_pnl_usdc": position_memory.get("last_pnl_usdc"),
+                },
+                "provenance": {
+                    "cooldown_authority": "SlotController",
+                    "post_trade_memory_source": "PositionManager.drc_memory",
+                    "decision_memory_source": "DecisionEngine.last_trade_*",
+                    "decision_memory_available": decision_memory_available,
+                    "no_effect": True,
+                },
+            },
+            "no_effect": True,
+        }
+
     # ========================================================
     # H&A LEARNING SYNC
     # ========================================================

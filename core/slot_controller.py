@@ -9,6 +9,7 @@
 # + H&A LEARNING SYNC (RADAR + DECISION ENGINE)
 # ============================================================
 
+import copy
 import time
 from typing import List
 
@@ -287,7 +288,7 @@ class SlotController:
 
         if normalized:
             release_ts = self.pair_cooldowns.get(normalized)
-            cooldown_metadata = dict(
+            cooldown_metadata = copy.deepcopy(
                 self.pair_cooldown_metadata.get(normalized, {}) or {}
             )
 
@@ -311,7 +312,9 @@ class SlotController:
 
         adaptive_state = {}
         try:
-            adaptive_state = dict(self.pair_adaptive_state.get(normalized, {}) or {})
+            adaptive_state = copy.deepcopy(
+                self.pair_adaptive_state.get(normalized, {}) or {}
+            )
         except Exception:
             adaptive_state = {}
 
@@ -324,7 +327,7 @@ class SlotController:
         position_memory = {}
         try:
             if self.position_manager:
-                position_memory = dict(
+                position_memory = copy.deepcopy(
                     getattr(self.position_manager, "drc_memory", {}).get(
                         normalized,
                         {},

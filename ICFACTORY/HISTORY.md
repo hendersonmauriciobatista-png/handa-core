@@ -1885,3 +1885,62 @@ Estado Institucional:
 * GP-16 — ENCERRADA
 
 O ciclo lexical atualmente planejado do Núcleo Constitucional ICFACTORY encontra-se concluído.
+
+## 2026-06-18 — Integração De Conformidade E Remediação Ao Template Constitucional
+
+### Contexto
+
+Após a conclusão da Camada De Conformidade (GP-15) e da Camada De Remediação Constitucional (GP-16), foi identificada a ausência de materialização documental desses conceitos no PROJECT_CONSTITUTION_TEMPLATE.md.
+
+A auditoria AA-01 identificou a lacuna arquitetural.
+
+A auditoria AA-02 (Constitutional Conformity And Remediation Integration Design) definiu o menor bloco estrutural capaz de absorver TUX-64 a TUX-68 e TUX-70 a TUX-74 sem alterar governança, autoridade, aprovação, validade ou vigência.
+
+A auditoria AA-03 validou o desenho proposto e confirmou ausência de governança paralela, ausência de colisão com Validação Constitucional e ausência de efeitos automáticos sobre Validade ou Vigência.
+
+### Implementação
+
+Foi incorporado ao PROJECT_CONSTITUTION_TEMPLATE.md o bloco:
+
+CONFORMIDADE E REMEDIAÇÃO CONSTITUCIONAL
+
+Inserido após REGISTRO DE ALTERAÇÕES e antes de MISSÃO.
+
+O bloco possui função exclusivamente:
+
+* avaliativa;
+* evidencial;
+* demonstrativa;
+* tratativa.
+
+O bloco não:
+
+* aprova;
+* valida;
+* confere validade;
+* altera vigência;
+* suspende;
+* revoga;
+* substitui;
+* cria autoridade;
+* prevalece sobre APROVAÇÃO E VIGÊNCIA.
+
+### Resultado
+
+O template passa a materializar documentalmente:
+
+* GP-13 — Camada Estrutural
+* GP-14 — Camada Operacional
+* GP-15 — Camada De Conformidade
+* GP-16 — Camada De Remediação
+
+Veredito final AA-03:
+
+APROVADO COM RESSALVAS MENORES
+
+Classificação das ressalvas:
+
+Exclusivamente documentais.
+
+Nenhuma ressalva arquitetural aberta.
+

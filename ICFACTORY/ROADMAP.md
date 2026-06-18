@@ -780,3 +780,38 @@ Nenhuma.
 Ressalvas documentais abertas:
 
 Nenhuma.
+
+## Atualização De Estado — Template Constitucional
+
+### Estado Atual
+
+| Programa | Camada                              | Estado    |
+| -------- | ----------------------------------- | --------- |
+| GP-13    | Camada Estrutural Principal         | ENCERRADA |
+| GP-14    | Camada Operacional                  | ENCERRADA |
+| GP-15    | Camada De Conformidade              | ENCERRADA |
+| GP-16    | Camada De Remediação Constitucional | ENCERRADA |
+
+### Estado Do Template
+
+PROJECT_CONSTITUTION_TEMPLATE.md
+
+Status:
+
+CONSOLIDADO
+
+Cobertura arquitetural:
+
+* Governança Documental
+* Autoridades Constitucionais
+* Aprovação E Vigência
+* Registro De Alterações
+* Conformidade Constitucional
+* Remediação Constitucional
+
+### Próximos Passos
+
+* Consolidação documental do léxico constitucional.
+* Preenchimento das seções auxiliares do CONSTITUTIONAL_LEXICON.md.
+* Auditorias de consistência cruzada entre Template, Léxico e Constituição ICFACTORY.
+* Avaliação futura de promoção do template para baseline v0.6.

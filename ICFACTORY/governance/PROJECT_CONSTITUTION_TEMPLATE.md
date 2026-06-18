@@ -282,6 +282,56 @@ Divergências identificadas neste registro devem permanecer rastreáveis, mas n�
 
 ---
 
+# CONFORMIDADE E REMEDIAÇÃO CONSTITUCIONAL
+
+Este bloco registra avaliações, evidências, demonstrações e tratamentos relacionados à conformidade constitucional desta Constituição de Projeto.
+
+Este bloco possui função exclusivamente avaliativa, evidencial, demonstrativa e tratativa.
+
+Seus registros não aprovam, não validam, não conferem validade, não alteram vigência, não suspendem, não revogam, não substituem, não criam autoridade e não prevalecem sobre APROVAÇÃO E VIGÊNCIA.
+
+A identificação de conformidade, não conformidade, indeterminação, remediação, contenção, ação corretiva, verificação pós-remediação ou restauração de conformidade não produz, por si só, efeitos automáticos sobre aprovação, validade ou vigência.
+
+## Separação Funcional
+
+A Verificação De Conformidade possui natureza avaliativa e destina-se exclusivamente à identificação de conformidade, não conformidade ou indeterminação em relação a referências constitucionais aplicáveis.
+
+A Verificação De Conformidade não constitui Validação Constitucional, não substitui Validação Constitucional e não produz os efeitos próprios da Validação Constitucional.
+
+A Validação Constitucional permanece regida exclusivamente pelas disposições constitucionais aplicáveis à validação.
+
+### Referência Constitucional Aplicável
+
+### Estado De Conformidade
+
+* Conformidade
+* Não Conformidade
+* Indeterminação
+
+### Evidências De Conformidade
+
+### Verificação De Conformidade
+
+### Demonstração De Aderência Constitucional
+
+### Tratamento De Não Conformidade
+
+* Remediação Constitucional:
+* Contenção Constitucional:
+* Ação Corretiva Constitucional:
+
+### Verificação Pós-Remediação
+
+### Resultado Pós-Remediação
+
+* Restauração De Conformidade
+* Persistência De Não Conformidade
+* Indeterminação
+
+### Referência À Evidência Da Verificação Pós-Remediação
+
+---
+
 # MISSÃO
 
 Descreva a finalidade principal do projeto.

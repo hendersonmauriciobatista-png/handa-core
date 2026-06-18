@@ -1944,3 +1944,99 @@ Exclusivamente documentais.
 
 Nenhuma ressalva arquitetural aberta.
 
+## 2026-06-18 — Promoção Da Baseline Documental Para v0.6
+
+### Contexto
+
+A promoção da baseline documental do Núcleo Constitucional ICFACTORY para v0.6 foi submetida a decisão após a conclusão das auditorias:
+
+* AA-04 — Constitutional Template Coverage Audit
+* BRA-01 — Baseline Readiness Audit
+* BRA-02 — Baseline Promotion Decision Audit
+
+### Fundamentação
+
+As auditorias concluíram que:
+
+* o núcleo constitucional é suficientemente completo;
+* a cobertura documental é adequada;
+* não existem bloqueadores arquiteturais conhecidos;
+* governança, validação, aprovação, validade e vigência permanecem consistentes;
+* conformidade e remediação encontram-se materializadas documentalmente.
+
+### Resultado Da Promoção
+
+A baseline documental do Núcleo Constitucional ICFACTORY passa a ser identificada como:
+
+v0.6
+
+Status:
+
+APROVADA COM RESSALVAS
+
+## 2026-06-18 — Encerramento Da Ressalva TUX-48 Da Baseline v0.6
+
+### Contexto
+
+A baseline documental v0.6 foi promovida com ressalva formal associada a:
+
+TUX-48 — Retorno À Vigência
+
+A ressalva possuía natureza documental não bloqueadora e decorria da ausência de enumeração explícita de Retorno À Vigência como transição registrável no bloco APROVAÇÃO E VIGÊNCIA do PROJECT_CONSTITUTION_TEMPLATE.md.
+
+### Evento Posterior
+
+A auditoria TUX-48A — Retorno À Vigência Materialization Design concluiu que a menor alteração adequada consistia em materializar Retorno À Vigência na lista de estados ou transições constitucionais registráveis do bloco APROVAÇÃO E VIGÊNCIA.
+
+### Implementação Executada
+
+Foi incorporada ao PROJECT_CONSTITUTION_TEMPLATE.md a transição:
+
+* Retorno à vigência
+
+Na lista:
+
+Estado ou transição constitucional registrada.
+
+### Resultado Da Reauditoria
+
+TUX-48 — Retorno À Vigência:
+
+TOTALMENTE MATERIALIZADO
+
+Retorno À Vigência passou a ser transição explicitamente registrável dentro do bloco constitucional já competente para vigência e suas transições.
+
+Nenhuma alteração foi realizada em:
+
+* governança;
+* autoridades;
+* validação;
+* aprovação;
+* validade;
+* vigência.
+
+### Encerramento Da Ressalva
+
+A ressalva formal associada à baseline documental v0.6 referente a TUX-48 — Retorno À Vigência fica encerrada.
+
+Motivo:
+
+Materialização documental concluída e reauditoria aprovada.
+
+### Estado Atual
+
+Baseline:
+
+v0.6
+
+Status:
+
+APROVADA
+
+Ressalvas arquiteturais conhecidas:
+
+Nenhuma.
+
+Ressalvas documentais conhecidas:
+
+Nenhuma.

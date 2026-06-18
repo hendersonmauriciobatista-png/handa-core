@@ -814,4 +814,44 @@ Cobertura arquitetural:
 * Consolidação documental do léxico constitucional.
 * Preenchimento das seções auxiliares do CONSTITUTIONAL_LEXICON.md.
 * Auditorias de consistência cruzada entre Template, Léxico e Constituição ICFACTORY.
-* Avaliação futura de promoção do template para baseline v0.6.
+* Promoção da baseline documental do Núcleo Constitucional ICFACTORY para v0.6 registrada.
+
+### Baseline Documental Atual
+
+Baseline:
+
+v0.6
+
+Status:
+
+APROVADA
+
+Base da decisão:
+
+* AA-04 — Constitutional Template Coverage Audit
+* BRA-01 — Baseline Readiness Audit
+* BRA-02 — Baseline Promotion Decision Audit
+
+Resultado consolidado:
+
+BASELINE v0.6 APROVADA
+
+Ressalva formal encerrada:
+
+TUX-48 — Retorno À Vigência
+
+Classificação:
+
+Encerrada.
+
+Situação:
+
+Retorno À Vigência encontra-se materializado no PROJECT_CONSTITUTION_TEMPLATE.md como transição registrável no bloco APROVAÇÃO E VIGÊNCIA.
+
+Ressalvas arquiteturais conhecidas:
+
+Nenhuma.
+
+Ressalvas documentais conhecidas:
+
+Nenhuma.

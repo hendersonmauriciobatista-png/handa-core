@@ -212,6 +212,7 @@ Estado ou transição constitucional registrada:
 
 * Aprovação
 * Suspensão
+* Retorno à vigência
 * Revogação
 * Substituição
 * Perda de vigência

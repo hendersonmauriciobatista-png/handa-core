@@ -1288,7 +1288,7 @@ class SlotController:
             # LOCK ÓRFÃO
             # ====================================================
 
-            for pair in self.symbol_execution_lock:
+            for pair in list(self.symbol_execution_lock):
 
                 if (
                     pair not in slot_symbols
@@ -1297,6 +1297,12 @@ class SlotController:
                 ):
 
                     print(f"[AUDIT] LOCK ÓRFÃO | pair={pair}")
+
+                    self.symbol_execution_lock.discard(pair)
+
+                    print(
+                        f"[RECONCILE] LOCK ÓRFÃO LIBERADO | pair={pair}"
+                    )
 
         except Exception as e:
             print(f"[AUDIT ERROR] {e}")

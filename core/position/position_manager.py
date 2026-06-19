@@ -6,6 +6,7 @@
 # ============================================================
 
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -129,15 +130,20 @@ class PositionManager:
 
         print("[DEBUG] Entrou no PositionManager __init__")
 
-        self.notifier = TelegramNotifier(
-            token="8696491310:AAFtyPpdmE7qJX2c61rPJeDI7gjAlnonazA",
-            chat_id="7975792456",
+        telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+        telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+        self.notifier = (
+            TelegramNotifier(token=telegram_token, chat_id=telegram_chat_id)
+            if telegram_token and telegram_chat_id
+            else None
         )
 
-        print("[DEBUG] Notifier criado")
+        if self.notifier:
+            print("[DEBUG] Notifier criado")
 
         try:
-            print("[DEBUG] TelegramNotifier inicializado com sucesso")
+            if self.notifier:
+                print("[DEBUG] TelegramNotifier inicializado com sucesso")
         except Exception as e:
             logger.warning("[TELEGRAM] Falha ao inicializar notifier: %s", e)
             print(f"[DEBUG] Erro Telegram: {e}")
@@ -226,8 +232,9 @@ class PositionManager:
         )
 
         try:
-            self.notifier.send(buy_msg)
-            print(f"[TELEGRAM BUY ENVIADO] {symbol_name}")
+            if self.notifier:
+                self.notifier.send(buy_msg)
+                print(f"[TELEGRAM BUY ENVIADO] {symbol_name}")
         except Exception as e:
             logger.warning("[TELEGRAM] Falha ao enviar BUY: %s", e)
 
@@ -850,7 +857,8 @@ class PositionManager:
 
         try:
 
-            self.notifier.send(sell_msg)
+            if self.notifier:
+                self.notifier.send(sell_msg)
         except Exception as e:
             logger.warning("[TELEGRAM] Falha ao enviar notificação: %s", e)
 

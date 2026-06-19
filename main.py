@@ -5,6 +5,7 @@
 # ============================================================
 
 import threading
+import os
 
 from binance.client import Client
 
@@ -175,9 +176,12 @@ def main():
     # --------------------------------------------------------
     client = build_client(current_mode)
 
-    telegram_notifier = TelegramNotifier(
-        token="8696491310:AAFtyPpdmE7qJX2c61rPJeDI7gjAlnonazA",
-        chat_id="7975792456",
+    telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    telegram_notifier = (
+        TelegramNotifier(token=telegram_token, chat_id=telegram_chat_id)
+        if telegram_token and telegram_chat_id
+        else None
     )
 
     # --------------------------------------------------------

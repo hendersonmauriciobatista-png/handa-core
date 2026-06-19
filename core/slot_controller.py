@@ -10,6 +10,7 @@
 # ============================================================
 
 import copy
+import os
 import time
 from typing import List
 
@@ -127,9 +128,12 @@ class SlotController:
         # =========================================================
         self.alo = alo
 
-        self.notifier = TelegramNotifier(
-            token="8696491310:AAF1czFwV394JaF4ur8sYxnUIlk5Irh3hWs",
-            chat_id="7975792456",
+        telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+        telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+        self.notifier = (
+            TelegramNotifier(token=telegram_token, chat_id=telegram_chat_id)
+            if telegram_token and telegram_chat_id
+            else None
         )
 
     # ========================================================
@@ -2659,12 +2663,13 @@ class SlotController:
             self._unblock_rejected_symbol(slot.pair)
 
             try:
-                self.notifier.send(
-                    f"🟢 BUY EXECUTADO\n"
-                    f"Par: {slot.pair}\n"
-                    f"Entrada: {result.entry_price:.8f}\n"
-                    f"Qtd: {result.quantity:.8f}"
-                )
+                if self.notifier:
+                    self.notifier.send(
+                        f"🟢 BUY EXECUTADO\n"
+                        f"Par: {slot.pair}\n"
+                        f"Entrada: {result.entry_price:.8f}\n"
+                        f"Qtd: {result.quantity:.8f}"
+                    )
             except Exception as e:
                 print(f"[TELEGRAM BUY ERROR] {e}")
 
@@ -2820,14 +2825,15 @@ class SlotController:
 
             try:
                 emoji = "🟢" if result.net_pnl_usdc >= 0 else "🔴"
-                self.notifier.send(
-                    f"{emoji} SELL EXECUTADO\n"
-                    f"Par: {result.pair}\n"
-                    f"Entrada: {result.entry_price:.8f}\n"
-                    f"Saída: {result.exit_price:.8f}\n"
-                    f"Resultado: {result.net_pnl_usdc:.4f} USDC\n"
-                    f"Motivo: {reason}"
-                )
+                if self.notifier:
+                    self.notifier.send(
+                        f"{emoji} SELL EXECUTADO\n"
+                        f"Par: {result.pair}\n"
+                        f"Entrada: {result.entry_price:.8f}\n"
+                        f"Saída: {result.exit_price:.8f}\n"
+                        f"Resultado: {result.net_pnl_usdc:.4f} USDC\n"
+                        f"Motivo: {reason}"
+                    )
             except Exception as e:
                 print(f"[TELEGRAM SELL ERROR] {e}")
 

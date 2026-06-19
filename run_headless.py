@@ -46,7 +46,7 @@ def run():
     set_execution_mode(ExecutionMode.MOCK)
     current_mode = ExecutionMode.MOCK
 
-    telegram_token = os.getenv("TELEGRAM_TOKEN", "").strip()
+    telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
     # ========================================================

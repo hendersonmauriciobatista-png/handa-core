@@ -855,3 +855,111 @@ Nenhuma.
 Ressalvas documentais conhecidas:
 
 Nenhuma.
+
+## Investigação Opportunity IA — Concluída
+
+Status:
+CONCLUÍDA
+
+Período:
+20/06/2026
+
+Referências:
+
+* OP-GD-001
+* TUX-OP01
+* TUX-OP02
+* TUX-OP03A
+* TUX-OP03B
+* TUX-OP04
+* TUX-OP05
+
+### Objetivo
+
+Investigar dores observáveis do mercado potencialmente relacionadas às capacidades documentadas do ICFACTORY.
+
+### Resultados
+
+A investigação confirmou a existência de lacunas persistentes relacionadas à governança do conhecimento em sistemas cognitivos e soluções de Persistent AI Memory.
+
+O mapeamento documental demonstrou aderência significativa entre essas lacunas e capacidades já documentadas do ICFACTORY, especialmente nas áreas de:
+
+* governança;
+* autoridade;
+* rastreabilidade;
+* explicabilidade;
+* formalização semântica.
+
+### Descoberta Estrutural
+
+A cadeia investigativa identificou seis padrões estruturais observáveis no Léxico Constitucional:
+
+1. Origem
+2. Relevância
+3. Estado
+4. Ciclo De Vida
+5. Aderência
+6. Tratamento
+
+### Descoberta Sobre Identidade
+
+As auditorias concluíram que a identidade do ICFACTORY não reside nesses padrões isoladamente.
+
+A identidade do framework reside na formalização constitucional, auditável e governada desses padrões.
+
+### Impacto
+
+A investigação produziu a primeira validação externa indireta da aderência do ICFACTORY a problemas reais observados fora do contexto do projeto H&A.
+
+### Estado Atual
+
+Investigação encerrada.
+
+Nenhuma alteração arquitetural realizada.
+
+Nenhum novo conceito incorporado.
+
+Resultados preservados para futuras linhas de pesquisa relacionadas a:
+
+* governança do conhecimento;
+* formalização semântica;
+* sistemas cognitivos governados;
+* rastreabilidade e autoridade em IA.
+
+# GP-18B — Primeiro Experimento De Adoção Externa
+
+Status:
+PLANEJADO
+
+Origem:
+
+Investigação Opportunity IA
+(20/06/2026)
+
+Objetivo:
+
+Validar a capacidade de adoção independente do Framework ICFACTORY por terceiros externos ao projeto H&A.
+
+Justificativa:
+
+A arquitetura, o léxico constitucional, a baseline documental e os mecanismos de governança encontram-se consolidados.
+
+A principal incerteza remanescente não é arquitetural.
+
+A principal incerteza remanescente é a capacidade de compreensão, utilização e adoção do framework por usuários independentes.
+
+Entregáveis previstos:
+
+* ICFACTORY Starter Pack
+* EXAMPLE_PROJECT_CONSTITUTION.md
+* LICENSE
+* Repositório público de adoção
+* Primeiro experimento controlado com usuário externo
+
+Critério De Sucesso:
+
+Um terceiro independente deverá ser capaz de utilizar o Starter Pack para produzir uma Constituição de Projeto válida sem assistência direta dos autores.
+
+Resultado Esperado:
+
+Primeira validação observável de adoção externa do ICFACTORY.

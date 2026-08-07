@@ -1,0 +1,756 @@
+# =============================================================================
+# core/selection/selection_policy_engine.py
+# H&A — Selection Policy Engine
+# Núcleo soberano de seleção de ativos
+# =============================================================================
+
+from dataclasses import dataclass, field
+from core.lc1.lc1_logger import LC1Logger
+from typing import List
+from core.dynamic_policy.lc1e_feedback_adapter import LC1EFeedbackAdapter
+
+# =============================================================================
+# DATA STRUCTURES
+# =============================================================================
+
+
+@dataclass
+class SelectionInput:
+    symbol: str
+
+    # ===== ANALYSIS =====
+    trend: str
+    momentum: str
+    market_state: str
+    volume_state: str
+
+    # ===== INDICADORES =====
+    rsi: float
+    volume_ratio: float
+
+    # ===== PREÇO / ESTRUTURA =====
+    price: float
+    ema_fast: float
+    ema_slow: float
+
+    # ===== OPCIONAL (TRANSIÇÃO) =====
+    market_score: float = 0.0
+
+
+@dataclass
+class PartialScores:
+    trend: float = 0.0
+    momentum: float = 0.0
+    rsi: float = 0.0
+    volume: float = 0.0
+    market: float = 0.0
+
+
+@dataclass
+class SelectionDecision:
+    symbol: str
+    approved: bool
+    final_score: float
+    partial_scores: PartialScores
+    rejection_reasons: List[str] = field(default_factory=list)
+    approval_reasons: List[str] = field(default_factory=list)
+    is_trending: bool = False
+    is_sideways_operable: bool = False
+    summary: str = ""
+
+
+# =============================================================================
+# ENGINE
+# =============================================================================
+
+
+class SelectionPolicyEngine:
+    """
+    Núcleo soberano de seleção de ativos do H&A.
+
+    Responsável apenas por:
+    - validar inputs
+    - aplicar filtros estruturais
+    - calcular score
+    - aprovar/rejeitar ativos
+    - ordenar ativos aprovados
+
+    Não é responsável por:
+    - execução de BUY/SELL
+    - capital
+    - risco
+    - penalty operacional
+    - slots
+    - validações de exchange
+    """
+
+    def __init__(self):
+        self.lc1e = LC1EFeedbackAdapter()
+        print("[SelectionPolicyEngine] inicializado")
+
+    # -------------------------------------------------------------------------
+    # PUBLIC API
+    # -------------------------------------------------------------------------
+
+    def evaluate(self, token) -> SelectionDecision:
+
+        # =========================
+        # BUILD INPUT
+        # =========================
+        data = self._build_input(token)
+
+        try:
+            self._validate_input(data)
+        except Exception as e:
+            print(
+                "[SELECTION DEBUG] INVALID_INPUT | "
+                f"symbol={data.symbol} | "
+                f"price={data.price} | "
+                f"ema_fast={data.ema_fast} | "
+                f"ema_slow={data.ema_slow} | "
+                f"rsi={data.rsi} | "
+                f"volume_ratio={data.volume_ratio} | "
+                f"erro={e}"
+            )
+
+            # LC-1E REGISTRO
+            self._record_lc1e_event(
+                token=token,
+                reason="INVALID_INPUT",
+                summary=str(e),
+            )
+
+            return self._build_decision(
+                data=data,
+                approved=False,
+                final_score=0.0,
+                partial_scores=PartialScores(),
+                rejection_reasons=["INVALID_INPUT"],
+                approval_reasons=[],
+                is_trending=False,
+                is_sideways_operable=False,
+                summary=str(e),
+            )
+
+        # =========================
+        # HARD FILTERS
+        # =========================
+        hard_reasons = self._check_hard_filters(data)
+        if hard_reasons:
+            decision = self._build_decision(
+                data=data,
+                approved=False,
+                final_score=0.0,
+                partial_scores=PartialScores(),
+                rejection_reasons=hard_reasons,
+                approval_reasons=[],
+                is_trending=False,
+                is_sideways_operable=False,
+                summary="HARD_FILTER",
+            )
+            self._log_decision(decision)
+
+            self._record_lc1e_event(
+                token=token,
+                reason="|".join(hard_reasons),
+                summary="HARD_FILTER",
+            )
+
+            return decision
+
+        # =========================
+        # STRUCTURAL CHECKS
+        # =========================
+        structural_reasons = self._check_structural_eligibility(data)
+
+        is_trending = self._check_structural_trend(data)
+        is_sideways = self._check_sideways_operable(data)
+
+        if structural_reasons:
+            decision = self._build_decision(
+                data=data,
+                approved=False,
+                final_score=0.0,
+                partial_scores=PartialScores(),
+                rejection_reasons=structural_reasons,
+                approval_reasons=[],
+                is_trending=is_trending,
+                is_sideways_operable=is_sideways,
+                summary="STRUCTURAL_REJECTION",
+            )
+            self._log_decision(decision)
+
+            # LC-1E REGISTRO
+            self._record_lc1e_event(
+                token=token,
+                reason="|".join(structural_reasons),
+                summary="STRUCTURAL_REJECTION",
+            )
+
+            return decision
+
+        # =========================
+        # SCORING
+        # =========================
+        partials = self._compute_partial_scores(data)
+        final_score = self._compose_final_score(partials)
+
+        # =========================
+        # FINAL DECISION
+        # =========================
+        approved = self._check_min_score(final_score, data)
+
+        decision = self._build_decision(
+            data=data,
+            approved=approved,
+            final_score=final_score,
+            partial_scores=partials,
+            rejection_reasons=[] if approved else ["SCORE_BELOW_MIN"],
+            approval_reasons=["SCORE_OK"] if approved else [],
+            is_trending=is_trending,
+            is_sideways_operable=is_sideways,
+            summary="FINAL_DECISION",
+        )
+
+        self._log_decision(decision)
+
+        # LC-1E REGISTRO
+        if not approved:
+            self._record_lc1e_event(
+                token=token,
+                reason="SCORE_BELOW_MIN",
+                summary="FINAL_DECISION",
+            )
+
+        return decision
+
+    def evaluate_many(self, opportunities) -> List[SelectionDecision]:
+        decisions: List[SelectionDecision] = []
+
+        if not opportunities:
+            return decisions
+
+        for token in opportunities:
+            try:
+                decision = self.evaluate(token)
+                decisions.append(decision)
+            except Exception as e:
+                symbol = (
+                    str(token.get("symbol") or token.get("pair") or "UNKNOWN")
+                    .strip()
+                    .upper()
+                )
+
+                decisions.append(
+                    SelectionDecision(
+                        symbol=symbol,
+                        approved=False,
+                        final_score=0.0,
+                        partial_scores=PartialScores(),
+                        rejection_reasons=["EVALUATION_ERROR"],
+                        approval_reasons=[],
+                        is_trending=False,
+                        is_sideways_operable=False,
+                        summary=str(e),
+                    )
+                )
+
+        return decisions
+
+    def get_approved_ranked(self, decisions) -> list:
+        if not decisions:
+            return []
+
+        approved = [d for d in decisions if d.approved]
+
+        approved.sort(key=lambda d: d.final_score, reverse=True)
+
+        return approved
+
+    # -------------------------------------------------------------------------
+    # INPUT / VALIDATION
+    # -------------------------------------------------------------------------
+
+    def _build_input(self, token) -> SelectionInput:
+        analysis = token.get("analysis", {}) or {}
+        print(f"[DEBUG BUILD_INPUT ANALYSIS] {analysis}")
+        snapshot = token.get("snapshot")
+
+        symbol = str(token.get("symbol") or token.get("pair") or "").strip().upper()
+
+        # compatibilidade: snapshot pode ser dict OU objeto
+        def get_snapshot_value(obj, key, default=0.0):
+            if obj is None:
+                return default
+
+            # dict
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+
+            # objeto (IndicatorSnapshot)
+            return getattr(obj, key, default)
+
+        # =====================================================
+        # PRICE FALLBACKS
+        # =====================================================
+        price = (
+            get_snapshot_value(snapshot, "close")
+            or getattr(snapshot, "close", None)
+            or getattr(snapshot, "price", None)
+            or getattr(snapshot, "last_price", None)
+            or analysis.get("price")
+            or token.get("price")
+            or 0.0
+        )
+
+        # =====================================================
+        # EMA FALLBACKS
+        # Padrão preferencial:
+        # - ema_fast  -> ema_fast ou ema_10
+        # - ema_slow  -> ema_slow ou ema_20
+        # =====================================================
+        ema_fast = (
+            get_snapshot_value(snapshot, "ema_fast")
+            or get_snapshot_value(snapshot, "ema_10")
+            or get_snapshot_value(snapshot, "ema10")
+            or analysis.get("ema_fast")
+            or analysis.get("ema_10")
+            or 0.0
+        )
+
+        ema_slow = (
+            get_snapshot_value(snapshot, "ema_slow")
+            or get_snapshot_value(snapshot, "ema_20")
+            or get_snapshot_value(snapshot, "ema20")
+            or analysis.get("ema_slow")
+            or analysis.get("ema_20")
+            or 0.0
+        )
+
+        # =====================================================
+        # CORREÇÃO DEFINITIVA DE PREÇO (ANTI-ZERO)
+        # =====================================================
+        if not price or price <= 0:
+            if ema_fast and ema_slow:
+                price = (ema_fast + ema_slow) / 2
+            elif ema_fast:
+                price = ema_fast
+            elif ema_slow:
+                price = ema_slow
+
+        # =====================================================
+        # FALLBACK FINAL DE PREÇO (DEBUG + PROTEÇÃO)
+        # =====================================================
+        if not price or price <= 0:
+            print(f"[PRICE FIX] {symbol} veio sem preço válido ...")
+
+            if ema_fast and ema_slow:
+                price = (ema_fast + ema_slow) / 2
+            elif ema_fast:
+                price = ema_fast
+            elif ema_slow:
+                price = ema_slow
+
+        return SelectionInput(
+            symbol=symbol,
+            # ===== ANALYSIS =====
+            trend=self._normalize_enum_value(analysis.get("trend")),
+            momentum=self._normalize_enum_value(analysis.get("momentum")),
+            market_state=self._normalize_enum_value(analysis.get("market_state")),
+            volume_state=self._normalize_enum_value(analysis.get("volume")),
+            # ===== INDICADORES =====
+            rsi=float(analysis.get("rsi", 0.0) or 0.0),
+            volume_ratio=float(analysis.get("volume_ratio", 0.0) or 0.0),
+            # ===== PREÇO / ESTRUTURA =====
+            price=float(price or 0.0),
+            ema_fast=float(ema_fast or 0.0),
+            ema_slow=float(ema_slow or 0.0),
+            # ===== TRANSIÇÃO =====
+            market_score=float(analysis.get("market_score", 0.0) or 0.0),
+        )
+
+    def _normalize_enum_value(self, value) -> str:
+        if value is None:
+            return ""
+
+        # Caso seja Enum real
+        if hasattr(value, "value"):
+            return str(value.value).strip().upper()
+
+        raw = str(value).strip()
+
+        # Caso venha como "TrendDirection.UPTREND"
+        if "." in raw:
+            raw = raw.split(".")[-1]
+
+        return raw.upper()
+
+    def _validate_input(self, data: SelectionInput) -> None:
+
+        if not data.symbol:
+            raise ValueError("SelectionInput inválido: symbol vazio")
+
+        if data.price <= 0:
+            raise ValueError(f"{data.symbol}: preço inválido")
+
+        if data.ema_fast <= 0 or data.ema_slow <= 0:
+            raise ValueError(f"{data.symbol}: EMAs inválidas")
+
+        # RSI pode ser 0 em alguns casos, mas tratamos como inválido estruturalmente
+        if data.rsi <= 0:
+            raise ValueError(f"{data.symbol}: RSI inválido")
+
+        # Volume pode ser 0, mas não pode ser negativo
+        if data.volume_ratio < 0:
+            raise ValueError(f"{data.symbol}: volume_ratio inválido")
+
+    # -------------------------------------------------------------------------
+    # STRUCTURAL FILTERS
+    # -------------------------------------------------------------------------
+
+    def _check_symbol_block(self, symbol: str) -> bool:
+        blocked_keywords = {
+            "PEPE",
+            "TRUMP",
+            "DOGE",
+            "SHIB",
+            "FLOKI",
+            "ROBO",
+            "SAHARA",
+            "BANANAS",
+            "TURBO",
+            "PENGU",
+            "WIF",
+        }
+
+        normalized = str(symbol).strip().upper()
+        return any(keyword in normalized for keyword in blocked_keywords)
+
+    def _check_hard_filters(self, data: SelectionInput) -> List[str]:
+        reasons: List[str] = []
+
+        if self._check_symbol_block(data.symbol):
+            reasons.append("SYMBOL_BLOCKED")
+
+        if data.rsi > 75:
+            reasons.append("RSI_EXTREMO")
+
+        if data.volume_ratio >= 4.0:
+            reasons.append("VOLUME_EXTREMO")
+
+        return reasons
+
+    def _check_structural_trend(self, data: SelectionInput) -> bool:
+        trend_value = str(data.trend).strip().upper()
+        return trend_value == "UPTREND"
+
+    def _check_structural_spread(self, data: SelectionInput) -> bool:
+        if data.price <= 0:
+            return False
+
+        spread = abs(data.ema_fast - data.ema_slow) / data.price
+        return spread >= 0.0003
+
+    def _check_sideways_operable(self, data: SelectionInput) -> bool:
+        market_state = str(data.market_state).strip().upper()
+
+        if market_state != "SIDEWAYS":
+            return False
+
+        if data.price <= 0:
+            return False
+
+        spread = abs(data.ema_fast - data.ema_slow) / data.price
+
+        # -----------------------------------------------------
+        # 🔥 DINÂMICO
+        # -----------------------------------------------------
+
+        if data.volume_ratio >= 1.5:
+            min_spread = 0.00025
+            min_rsi = 40.0
+
+        elif data.volume_ratio >= 1.0:
+            min_spread = 0.00030
+            min_rsi = 42.0
+
+        else:
+            min_spread = 0.00035
+            min_rsi = 45.0
+
+        return (
+            data.ema_fast > data.ema_slow
+            and spread >= min_spread
+            and data.rsi >= min_rsi
+            and data.volume_ratio >= 0.9
+        )
+
+    def _check_structural_rsi(self, data: SelectionInput) -> bool:
+        return data.rsi >= 45.0
+
+    def _check_structural_volume(self, data: SelectionInput) -> bool:
+        return data.volume_ratio >= 1.2
+
+    def _check_structural_eligibility(self, data: SelectionInput) -> List[str]:
+        reasons: List[str] = []
+
+        is_trending = self._check_structural_trend(data)
+        is_sideways_ok = self._check_sideways_operable(data)
+
+        # Deve ser trending OU sideways operável
+        if not is_trending and not is_sideways_ok:
+            reasons.append("STRUCTURE_INVALID")
+
+        if not self._check_structural_spread(data):
+            reasons.append("SPREAD_INSUFFICIENT")
+
+        if not self._check_structural_rsi(data):
+            reasons.append("RSI_BELOW_MIN")
+
+        if not self._check_structural_volume(data):
+            reasons.append("VOLUME_BELOW_MIN")
+
+            if reasons:
+                spread = 0.0
+                if data.price > 0:
+                    spread = abs(data.ema_fast - data.ema_slow) / data.price
+
+                print(
+                    f"[STRUCTURAL DEBUG] {data.symbol} | "
+                    f"trend={data.trend} | "
+                    f"momentum={data.momentum} | "
+                    f"market_state={data.market_state} | "
+                    f"volume_state={data.volume_state} | "
+                    f"price={data.price:.8f} | "
+                    f"ema_fast={data.ema_fast:.8f} | "
+                    f"ema_slow={data.ema_slow:.8f} | "
+                    f"spread={spread:.8f} | "
+                    f"rsi={data.rsi:.2f} | "
+                    f"volume_ratio={data.volume_ratio:.4f} | "
+                    f"reasons={','.join(reasons)}"
+                )
+
+        return reasons
+
+    # -------------------------------------------------------------------------
+    # SCORING
+    # -------------------------------------------------------------------------
+
+    def _score_trend(self, data: SelectionInput) -> float:
+        trend_value = str(data.trend).strip().upper()
+
+        if trend_value == "UPTREND":
+            return 0.35
+
+        return 0.0
+
+    def _score_momentum(self, data: SelectionInput) -> float:
+        momentum_value = str(data.momentum).strip().upper()
+
+        if momentum_value == "BULLISH":
+            return 0.25
+        elif momentum_value == "NEUTRAL":
+            return 0.10
+
+        return 0.0
+
+    def _score_rsi(self, data: SelectionInput) -> float:
+        rsi = float(data.rsi)
+
+        if 45 <= rsi <= 60:
+            return 0.20
+        elif 40 <= rsi < 45 or 60 < rsi <= 65:
+            return 0.10
+        elif 65 < rsi <= 72:
+            return 0.05
+
+        return 0.0
+
+    def _score_volume(self, data: SelectionInput) -> float:
+        volume_ratio = float(data.volume_ratio)
+
+        # =========================================
+        # Volume forte
+        # =========================================
+        if 1.5 <= volume_ratio < 3.0:
+            return 0.15
+
+        # =========================================
+        # Volume aceitável / saudável
+        # =========================================
+        elif 1.2 <= volume_ratio < 1.5:
+            return 0.10
+
+        # =========================================
+        # Volume estrutural mínimo
+        # =========================================
+        elif 1.0 <= volume_ratio < 1.2:
+            return 0.05
+
+        return 0.0
+
+    def _score_market_state(self, data: SelectionInput) -> float:
+        state = str(data.market_state).strip().upper()
+        market_score = float(data.market_score or 0.0)
+
+        base_score = 0.0
+
+        # =========================================
+        # UPTREND = melhor cenário
+        # =========================================
+        if state == "UPTREND":
+            base_score = 0.10
+
+        # =========================================
+        # SIDEWAYS OPERÁVEL = neutro positivo
+        # =========================================
+        elif state == "SIDEWAYS" and self._check_sideways_operable(data):
+            base_score = 0.05
+
+        # =========================================
+        # Outros estados
+        # =========================================
+        elif state == "BULLISH_WEAK":
+            base_score = 0.03
+
+        # =========================================
+        # Bônus leve por market_score
+        # Mantém o motor conservador e evita campo órfão
+        # =========================================
+        bonus = 0.0
+
+        if market_score >= 0.80:
+            bonus = 0.03
+        elif market_score >= 0.65:
+            bonus = 0.02
+        elif market_score >= 0.50:
+            bonus = 0.01
+
+        final_market_score = base_score + bonus
+
+        return min(final_market_score, 0.12)
+
+    def _compute_partial_scores(self, data: SelectionInput) -> PartialScores:
+        return PartialScores(
+            trend=self._score_trend(data),
+            momentum=self._score_momentum(data),
+            rsi=self._score_rsi(data),
+            volume=self._score_volume(data),
+            market=self._score_market_state(data),
+        )
+
+    def _compose_final_score(self, partials: PartialScores) -> float:
+        score = (
+            float(partials.trend)
+            + float(partials.momentum)
+            + float(partials.rsi)
+            + float(partials.volume)
+            + float(partials.market)
+        )
+
+        score = max(min(score, 1.0), 0.0)
+        return round(score, 4)
+
+    def _check_min_score(self, final_score: float, data: SelectionInput) -> bool:
+        real_score = float(final_score)
+
+        # -----------------------------------------------------
+        # 🔥 THRESHOLD DINÂMICO
+        # -----------------------------------------------------
+        trend = str(data.trend).strip().upper()
+        momentum = str(data.momentum).strip().upper()
+        volume = float(data.volume_ratio)
+
+        if trend == "UPTREND" and momentum == "BULLISH":
+            min_score = 0.28
+
+        elif trend == "UPTREND" and momentum == "NEUTRAL" and volume >= 1.2:
+            min_score = 0.26
+
+        elif trend == "UPTREND" and volume >= 1.5:
+            min_score = 0.25
+
+        else:
+            min_score = 0.30
+
+        print(
+            f"[MIN_SCORE DEBUG] score={real_score:.4f} | min={min_score:.4f} "
+            f"| trend={trend} | momentum={momentum} | vol={volume:.3f}"
+        )
+
+        return real_score >= min_score
+
+    # -------------------------------------------------------------------------
+    # DECISION / LOG
+    # -------------------------------------------------------------------------
+
+    def _build_decision(
+        self,
+        data: SelectionInput,
+        approved: bool,
+        final_score: float,
+        partial_scores: PartialScores,
+        rejection_reasons: List[str],
+        approval_reasons: List[str],
+        is_trending: bool,
+        is_sideways_operable: bool,
+        summary: str,
+    ) -> SelectionDecision:
+        return SelectionDecision(
+            symbol=data.symbol,
+            approved=bool(approved),
+            final_score=float(final_score),
+            partial_scores=partial_scores,
+            rejection_reasons=list(rejection_reasons),
+            approval_reasons=list(approval_reasons),
+            is_trending=bool(is_trending),
+            is_sideways_operable=bool(is_sideways_operable),
+            summary=str(summary),
+        )
+
+    def _log_decision(self, decision: SelectionDecision) -> None:
+        ps = decision.partial_scores
+
+        print(
+            f"[SELECTION SCORE] {decision.symbol} | "
+            f"trend={ps.trend:.2f} momentum={ps.momentum:.2f} "
+            f"rsi={ps.rsi:.2f} volume={ps.volume:.2f} "
+            f"market={ps.market:.2f} final={decision.final_score:.4f}"
+        )
+
+        if decision.approved:
+            print(
+                f"[SELECTION APPROVED] {decision.symbol} | score={decision.final_score:.4f}"
+            )
+        else:
+            reasons = ",".join(decision.rejection_reasons) or "UNKNOWN"
+            print(f"[SELECTION REJECTED] {decision.symbol} | reasons={reasons}")
+
+    def _record_lc1e_event(
+        self,
+        token,
+        reason: str,
+        summary: str = "",
+        event_type: str = "NON_EXECUTION",
+        market_context: dict | None = None,
+    ) -> None:
+        try:
+            analysis = token.get("analysis", {}) or {}
+            snapshot = token.get("snapshot")
+            symbol = str(token.get("symbol") or token.get("pair") or "").strip().upper()
+
+            event = self.lc1e.build_event(
+                symbol=symbol,
+                reason=reason,
+                analysis=analysis,
+                snapshot=snapshot,
+                market_context=market_context or {},
+                event_type=event_type,
+                source="selection_policy_engine",
+                summary=summary,
+            )
+            self.lc1e.record_event(event)
+        except Exception as e:
+            print(
+                f"[LC1E ERROR] falha ao registrar evento | reason={reason} | erro={e}"
+            )

@@ -10,7 +10,7 @@ O projeto integra componentes de análise de mercado, radar de oportunidades, de
 
 ## Status do Projeto
 
-Só essa alteração por enquanto. Ela distingue claramente estado operacional de reprodutibilidade do repositório, que são duas coisas diferentes.
+**Status operacional:** implantado em infraestrutura dedicada e mantido em operação contínua.
 
 **Status de desenvolvimento:** funcional e em evolução contínua.
 

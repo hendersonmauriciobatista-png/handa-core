@@ -52,7 +52,7 @@ def _keyword_names(call):
     return [keyword.arg for keyword in call.keywords if keyword.arg]
 
 
-def test_live_build_arguments_match_binance_executor_signature_without_notifier():
+def test_live_build_arguments_match_binance_executor_signature_with_capability():
     main_tree = _parse(ROOT / "main.py")
     executor_tree = _parse(ROOT / "core" / "executor" / "binance_executor.py")
 
@@ -65,6 +65,7 @@ def test_live_build_arguments_match_binance_executor_signature_without_notifier(
         "client",
         "position_manager",
         "tracker",
+        "live_capability",
     ]
     assert "notifier" not in signature.parameters
     assert constructor.args.kwarg is None
@@ -72,6 +73,7 @@ def test_live_build_arguments_match_binance_executor_signature_without_notifier(
         client=object(),
         position_manager=object(),
         tracker=object(),
+        live_capability=object(),
     )
 
 

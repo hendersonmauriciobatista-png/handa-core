@@ -24,7 +24,7 @@ from core.dynamic_policy.lc1_feedback_adapter import LC1FeedbackAdapter
 from interface.desktop.app_layout import HAControlPanel
 from interface.desktop.ha_controller import HAController
 from core.notifications.telegram_notifier import TelegramNotifier
-from core.execution_boundary import build_client_for_mode
+from core.execution_boundary import build_live_components
 from core.execution_mode import set_execution_mode, get_execution_mode, ExecutionMode
 
 
@@ -101,15 +101,15 @@ def sync_positions_with_binance(client, slot_controller, position_manager):
 # ============================================================
 
 
-def build_client(current_mode: ExecutionMode) -> Client:
-    client = build_client_for_mode(current_mode, Client)
+def build_client(current_mode: ExecutionMode):
+    client, live_capability = build_live_components(current_mode, Client)
 
     if current_mode == ExecutionMode.LIVE:
         print("[BOOT] Binance client LIVE iniciado")
-        return client
+        return client, live_capability
 
     print("[BOOT] Binance client público iniciado (MOCK seguro)")
-    return client
+    return client, live_capability
 
 
 # ============================================================
@@ -123,6 +123,7 @@ def build_executor(
     position_manager: PositionManager,
     tracker: PositionTracker,
     notifier=None,
+    live_capability=None,
 ):
 
     if current_mode == ExecutionMode.LIVE:
@@ -130,6 +131,7 @@ def build_executor(
             client=client,
             position_manager=position_manager,
             tracker=tracker,
+            live_capability=live_capability,
         )
         print("[BOOT] BinanceExecutor iniciado (LIVE)")
         return executor
@@ -165,7 +167,7 @@ def main():
     # --------------------------------------------------------
     # CLIENT
     # --------------------------------------------------------
-    client = build_client(current_mode)
+    client, live_capability = build_client(current_mode)
 
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
@@ -193,6 +195,7 @@ def main():
         position_manager=position_manager,
         tracker=tracker,
         notifier=telegram_notifier,
+        live_capability=live_capability,
     )
 
     # --------------------------------------------------------

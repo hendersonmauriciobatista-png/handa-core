@@ -12,6 +12,7 @@ from binance.client import Client
 from core.position.position_manager import PositionManager, CloseReason
 from core.position.position_tracker import PositionTracker
 from core.decision.decision_engine import BuySignal
+from core.execution_boundary import is_valid_live_capability
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,13 @@ class BinanceExecutor:
         client: Client,
         position_manager: PositionManager,
         tracker: PositionTracker,
+        live_capability=None,
     ):
+        if not is_valid_live_capability(live_capability):
+            raise RuntimeError(
+                "BinanceExecutor exige capability LIVE emitida pela fronteira institucional"
+            )
+
         self.client = client
         self.position_manager = position_manager
         self.tracker = tracker

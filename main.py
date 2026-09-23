@@ -138,7 +138,6 @@ def build_executor(
             client=client,
             position_manager=position_manager,
             tracker=tracker,
-            notifier=notifier,
         )
         print("[BOOT] BinanceExecutor iniciado (LIVE)")
         return executor

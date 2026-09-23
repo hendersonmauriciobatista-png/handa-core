@@ -20,10 +20,6 @@ except Exception:
     LiveShadowSimulator = None
 
 
-def format_buy_telegram(pair: str, entry: float, capital: float) -> str:
-    return f"BUY | {pair}\n" f"{entry:.8f} | {capital:.2f} USDC"
-
-
 class MockExecutor:
     """
     Executor MOCK compatível com múltiplos slots.
@@ -181,23 +177,6 @@ class MockExecutor:
             except Exception:
                 pass
 
-        if self.notifier:
-            msg = format_buy_telegram(
-                pair=pair,
-                entry=entry_price,
-                capital=allocated_usdc,
-            )
-
-            print(f"[BUY NOTIFIER DEBUG] notifier_exists={self.notifier is not None}")
-            print(f"[BUY NOTIFIER DEBUG] msg={msg}")
-
-            try:
-                self.notifier.send(msg)
-                print("[BUY NOTIFIER DEBUG] send_called")
-            except Exception as e:
-                print(f"[BUY NOTIFIER ERROR] {e}")
-        else:
-            print("[BUY NOTIFIER DEBUG] notifier is None")
         if self.live_shadow:
             try:
                 self.live_shadow.record_buy(

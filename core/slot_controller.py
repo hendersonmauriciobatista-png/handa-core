@@ -2662,17 +2662,6 @@ class SlotController:
 
             self._unblock_rejected_symbol(slot.pair)
 
-            try:
-                if self.notifier:
-                    self.notifier.send(
-                        f"🟢 BUY EXECUTADO\n"
-                        f"Par: {slot.pair}\n"
-                        f"Entrada: {result.entry_price:.8f}\n"
-                        f"Qtd: {result.quantity:.8f}"
-                    )
-            except Exception as e:
-                print(f"[TELEGRAM BUY ERROR] {e}")
-
         except Exception as e:
             print(f"[SLOT {slot.slot_id}] BUY ERROR: {e}")
             if not executor_called:
@@ -2822,20 +2811,6 @@ class SlotController:
                 f"entry={result.entry_price:.6f} exit={result.exit_price:.6f} "
                 f"profit={result.net_pnl_usdc:.4f} USDC"
             )
-
-            try:
-                emoji = "🟢" if result.net_pnl_usdc >= 0 else "🔴"
-                if self.notifier:
-                    self.notifier.send(
-                        f"{emoji} SELL EXECUTADO\n"
-                        f"Par: {result.pair}\n"
-                        f"Entrada: {result.entry_price:.8f}\n"
-                        f"Saída: {result.exit_price:.8f}\n"
-                        f"Resultado: {result.net_pnl_usdc:.4f} USDC\n"
-                        f"Motivo: {reason}"
-                    )
-            except Exception as e:
-                print(f"[TELEGRAM SELL ERROR] {e}")
 
             self._cleanup_successful_sell(
                 slot=slot,

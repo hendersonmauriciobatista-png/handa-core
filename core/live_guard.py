@@ -15,6 +15,11 @@ class LiveGuard:
         confirm_flag = os.getenv("CONFIRM_LIVE_REAL", "").upper() == "YES"
         return enable_flag and confirm_flag
 
+    @classmethod
+    def require_live_real(cls) -> None:
+        if not cls.is_live_real_allowed():
+            raise RuntimeError(cls.reason_blocked())
+
     @staticmethod
     def reason_blocked() -> str:
         return (

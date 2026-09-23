@@ -24,12 +24,7 @@ from core.dynamic_policy.lc1_feedback_adapter import LC1FeedbackAdapter
 from interface.desktop.app_layout import HAControlPanel
 from interface.desktop.ha_controller import HAController
 from core.notifications.telegram_notifier import TelegramNotifier
-
-from core.credentials.api_keys import (
-    get_binance_api_key,
-    get_binance_api_secret,
-)
-
+from core.execution_boundary import build_client_for_mode
 from core.execution_mode import set_execution_mode, get_execution_mode, ExecutionMode
 
 
@@ -107,15 +102,12 @@ def sync_positions_with_binance(client, slot_controller, position_manager):
 
 
 def build_client(current_mode: ExecutionMode) -> Client:
-    api_key = get_binance_api_key()
-    api_secret = get_binance_api_secret()
+    client = build_client_for_mode(current_mode, Client)
 
     if current_mode == ExecutionMode.LIVE:
-        client = Client(api_key, api_secret)
         print("[BOOT] Binance client LIVE iniciado")
         return client
 
-    client = Client("", "")
     print("[BOOT] Binance client público iniciado (MOCK seguro)")
     return client
 

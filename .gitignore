@@ -38,7 +38,9 @@ Thumbs.db
 # Logs (opcional)
 *.log
 # credenciais e estados sensíveis
-core/credentials/
+core/credentials/*
+!core/credentials/__init__.py
+!core/credentials/api_keys.py
 storage/
 *.env
 *.key

@@ -56,22 +56,6 @@ class APISettings(ctk.CTkToplevel):
     # =========================================================
 
     def save_keys(self, event=None):
-
-        api_key = self.entry_key.get().strip()
-        api_secret = self.entry_secret.get().strip()
-
-        self.status_label.configure(text="Conectando...")
-
-        try:
-
-            self.ctx.executor.set_api_keys(api_key, api_secret)
-
-            balance = self.ctx.executor.get_balance("USDC")
-
-            self.status_label.configure(
-                text=f"✓ Conectado | Saldo: {balance} USDC"
-            )
-
-        except Exception as e:
-
-            self.status_label.configure(text=f"Erro: {e}")
+        self.status_label.configure(
+            text="Credential management is controlled by the execution boundary"
+        )

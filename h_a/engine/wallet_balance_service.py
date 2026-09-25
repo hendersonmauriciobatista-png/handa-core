@@ -4,8 +4,10 @@ from binance.exceptions import BinanceAPIException
 
 class WalletBalanceService:
 
-    def __init__(self, api_key: str, api_secret: str):
-        self.client = Client(api_key, api_secret)
+    def __init__(self, client: Client):
+        if client is None:
+            raise ValueError("Cliente Binance governado não pode ser None.")
+        self.client = client
 
     def get_usdc_balance(self) -> float:
         try:

@@ -5,7 +5,6 @@
 # =================================================
 
 from executor.mock_executor import ExecutorMock
-from binance.client import Client
 
 
 class ExecutorRouter:
@@ -32,29 +31,22 @@ class ExecutorRouter:
     # CONFIGURAÇÃO DE API BINANCE
     # =================================================
 
-    def configure_keys(self, api_key: str, secret_key: str):
-
-        try:
-
-            client = Client(api_key, secret_key)
-
-            # testa conexão com Binance
-            client.ping()
-
-            self.client = client
-            self.api_valid = True
-
-            print("BINANCE CONNECTED ✔")
-
-            return True
-
-        except Exception as e:
-
-            print("API ERROR:", e)
-
+    def configure_client(self, client):
+        """Recebe somente cliente já construído pela fronteira autorizada."""
+        if client is None:
+            self.client = None
             self.api_valid = False
-
             return False
+
+        self.client = client
+        self.api_valid = True
+        return True
+
+    def configure_keys(self, *_args, **_kwargs):
+        raise RuntimeError(
+            "Credenciais não podem ser configuradas pelo ExecutorRouter; "
+            "use o cliente emitido pela ExecutionBoundary."
+        )
 
     # =================================================
     # ALIAS DE COMPATIBILIDADE

@@ -23,6 +23,8 @@ from core.decision.decision_engine import DecisionEngine
 from core.market.market_data_provider import MarketDataProvider
 from core.market.symbol_metadata_provider import SymbolMetadataProvider
 from core.market.wallet_balance_provider import WalletBalanceProvider
+from core.execution_boundary import build_live_components
+from core.execution_mode import ExecutionMode
 
 from executor.mock_executor import ExecutorMock
 from executor.executor_live import ExecutorLive
@@ -52,6 +54,7 @@ class AppContext:
         self.metadata_provider = None
         self.wallet_provider = None
         self.binance_client = None
+        self.live_capability = None
 
         # Governança
         self.policy = None
@@ -88,19 +91,16 @@ class AppRunner:
         # Executor MOCK padrão
         self.ctx.executor = ExecutorMock()
 
-        # API Keys
-        api_key = os.getenv("BINANCE_API_KEY")
-        api_secret = os.getenv("BINANCE_API_SECRET")
-
-        if not api_key or not api_secret:
-            raise ValueError("API keys não encontradas nas variáveis de ambiente.")
-
-        # CLIENT BINANCE
-        self.ctx.binance_client = Client(
-            api_key,
-            api_secret,
-            requests_params={"timeout": 5}
+        # CLIENT BINANCE — construção governada pela fronteira canônica
+        current_mode = (
+            ExecutionMode.LIVE
+            if self.ctx.mode == "LIVE"
+            else ExecutionMode.MOCK
         )
+        (
+            self.ctx.binance_client,
+            self.ctx.live_capability,
+        ) = build_live_components(current_mode, Client)
 
         # =====================================================
         # MARKET LAYER
@@ -237,10 +237,9 @@ class AppRunner:
     # --------------------------------------------------------
 
     def boot(self, mode="MOCK"):
-
+        self.set_mode(mode)
         self.init_core()
         self.init_policy()
-        self.set_mode(mode)
 
         self.ctx.booted = True
         return self.ctx

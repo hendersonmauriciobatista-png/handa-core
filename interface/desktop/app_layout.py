@@ -9,9 +9,6 @@ import customtkinter as ctk
 import threading
 import time
 
-from binance.client import Client
-
-
 from core.slot_controller import SlotController
 from interface.components.api_settings import APISettings
 
@@ -692,29 +689,9 @@ class HAControlPanel(ctk.CTk):
 
         def connect_api(event=None):
 
-            status_var.set("Connecting...")
-            dialog.update()
-
-            try:
-
-                api_key = api_key_var.get().strip()
-                secret_key = secret_key_var.get().strip()
-
-                if not api_key or not secret_key:
-                    status_var.set("Missing API keys")
-                    return
-
-                client = Client(api_key, secret_key)
-
-                account = client.get_account()
-
-                self.client = client
-
-                status_var.set("✓ Connected to Binance")
-
-            except Exception as e:
-
-                status_var.set(f"Error: {str(e)[:60]}")
+            status_var.set(
+                "Credential management is controlled by the execution boundary"
+            )
 
         # -----------------------
         # PASTE SUPPORT
@@ -726,35 +703,10 @@ class HAControlPanel(ctk.CTk):
 
         def save():
 
-            api = api_key_var.get().strip()
-            secret = secret_key_var.get().strip()
-
-            if not api or not secret:
-
-                status_var.set("Missing API or SECRET")
-                status_label.configure(text_color="orange")
-                return
-
-            try:
-
-                client = Client(api, secret)
-
-                # chamada real na Binance
-                account = client.get_account()
-
-                self.binance_client = client
-
-                status_var.set("API CONNECTED ✓")
-                status_label.configure(text_color="green")
-
-                print("BINANCE API VALIDATED")
-
-            except Exception as e:
-
-                status_var.set("API INVALID ✗")
-                status_label.configure(text_color="red")
-
-                print("API ERROR:", e)
+            status_var.set(
+                "Credential management is controlled by the execution boundary"
+            )
+            status_label.configure(text_color="orange")
 
         # -----------------------
         # SAVE BUTTON

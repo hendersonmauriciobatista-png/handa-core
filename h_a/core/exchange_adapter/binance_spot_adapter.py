@@ -13,8 +13,10 @@ class BinanceSpotAdapter(ExchangeAdapter):
     NÃO corrige erro.
     """
 
-    def __init__(self, api_key: str, api_secret: str):
-        self.client = Client(api_key, api_secret)
+    def __init__(self, client: Client):
+        if client is None:
+            raise ValueError("Cliente Binance governado não pode ser None.")
+        self.client = client
 
     def send_order(self, order_payload: Dict[str, Any]) -> Dict[str, Any]:
         try:

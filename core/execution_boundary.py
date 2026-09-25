@@ -8,10 +8,11 @@ from core.live_guard import LiveGuard
 class LiveExecutionCapability:
     """Opaque in-process evidence issued only by the LIVE boundary."""
 
-    __slots__ = ("_marker",)
+    __slots__ = ("_marker", "_bound_client")
 
-    def __init__(self, marker: object):
+    def __init__(self, marker: object, bound_client: object):
         self._marker = marker
+        self._bound_client = bound_client
 
 
 _CAPABILITY_MARKER = object()
@@ -21,6 +22,13 @@ def is_valid_live_capability(capability: object) -> bool:
     return (
         isinstance(capability, LiveExecutionCapability)
         and capability._marker is _CAPABILITY_MARKER
+    )
+
+
+def is_bound_live_capability(capability: object, client: object) -> bool:
+    return (
+        is_valid_live_capability(capability)
+        and capability._bound_client is client
     )
 
 
@@ -36,7 +44,7 @@ def build_live_components(
     api_key = get_binance_api_key()
     api_secret = get_binance_api_secret()
     client = client_factory(api_key, api_secret)
-    capability = LiveExecutionCapability(_CAPABILITY_MARKER)
+    capability = LiveExecutionCapability(_CAPABILITY_MARKER, client)
     return client, capability
 
 

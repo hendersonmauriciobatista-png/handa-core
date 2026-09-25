@@ -1,7 +1,11 @@
 import os
 from unittest.mock import patch
 
-from core.execution_boundary import build_client_for_mode
+from core.execution_boundary import (
+    build_client_for_mode,
+    build_live_components,
+    is_bound_live_capability,
+)
 from core.execution_mode import ExecutionMode
 
 
@@ -68,3 +72,22 @@ def test_authorized_live_reaches_only_the_stub_client_boundary():
 
     assert client is not None
     assert factory.calls == [("unit-test-key", "unit-test-secret")]
+
+
+def test_authorized_live_returns_a_capability_bound_to_the_client():
+    factory = RecordingClientFactory()
+
+    with patch.dict(
+        os.environ,
+        {
+            "ENABLE_LIVE_REAL": "true",
+            "CONFIRM_LIVE_REAL": "YES",
+            "BINANCE_API_KEY": "unit-test-key",
+            "BINANCE_API_SECRET": "unit-test-secret",
+        },
+        clear=True,
+    ):
+        client, capability = build_live_components(ExecutionMode.LIVE, factory)
+
+    assert is_bound_live_capability(capability, client)
+    assert not is_bound_live_capability(capability, object())

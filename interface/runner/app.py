@@ -116,7 +116,12 @@ class AppRunner:
         self.ctx.wallet_provider = WalletBalanceProvider(self.ctx.binance_client)
 
         # Executor LIVE real
-        self.ctx.executor_live = ExecutorLive(self.ctx.binance_client)
+        self.ctx.executor_live = None
+        if current_mode == ExecutionMode.LIVE:
+            self.ctx.executor_live = ExecutorLive(
+                client=self.ctx.binance_client,
+                live_capability=self.ctx.live_capability,
+            )
 
         # =====================================================
         # DECISION ENGINE

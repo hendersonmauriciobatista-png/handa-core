@@ -9,6 +9,7 @@ from typing import Dict, Any
 from math import floor
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
+from core.execution_boundary import is_bound_live_capability
 
 def format_buy_telegram(pair: str, entry: float, capital: float) -> str:
     return (
@@ -18,9 +19,13 @@ def format_buy_telegram(pair: str, entry: float, capital: float) -> str:
 
 class ExecutorLive:
 
-    def __init__(self, client: Client, notifier=None):
+    def __init__(self, client: Client, notifier=None, live_capability=None):
         if client is None:
             raise ValueError("Client Binance não pode ser None.")
+        if not is_bound_live_capability(live_capability, client):
+            raise RuntimeError(
+                "ExecutorLive exige capability LIVE vinculada ao client emitido pela fronteira institucional"
+            )
         self._client = client
         self.exchange = "BINANCE_SPOT"
         self.notifier = notifier

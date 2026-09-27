@@ -25,6 +25,13 @@ MIGRATION_002 = (
     / "migrations"
     / "002_relax_may_have_been_submitted_certainty.sql"
 )
+MIGRATION_003 = (
+    Path(__file__).parents[2]
+    / "core"
+    / "persistence"
+    / "migrations"
+    / "003_reconciliation_evidence.sql"
+)
 
 
 def _connect_test_database():
@@ -73,6 +80,8 @@ def schema_v2_connection():
             cursor.execute("DROP SCHEMA IF EXISTS handa_live CASCADE")
             cursor.execute(MIGRATION.read_text(encoding="utf-8"))
             cursor.execute(MIGRATION_002.read_text(encoding="utf-8"))
+            if MIGRATION_003.exists():
+                cursor.execute(MIGRATION_003.read_text(encoding="utf-8"))
         connection.commit()
         yield connection
     finally:
@@ -592,3 +601,229 @@ def test_sequence_constraints_and_rollback(schema_connection):
     with schema_connection.cursor() as cursor:
         cursor.execute("SELECT COUNT(*) FROM handa_live.submission_attempt")
         assert cursor.fetchone() == (0,)
+
+
+def _insert_lineage_fixture(connection, *, include_second_intent=False, second_revision=False):
+    _insert_intent(
+        connection,
+        "i-1",
+        "client-1",
+        submission_lifecycle_state="MAY_HAVE_BEEN_SUBMITTED",
+        execution_certainty="UNKNOWN",
+        reconciliation_state="PENDING",
+    )
+    if include_second_intent:
+        _insert_intent(
+            connection,
+            "i-2",
+            "client-2",
+            symbol="ETHUSDC",
+            submission_lifecycle_state="MAY_HAVE_BEEN_SUBMITTED",
+            execution_certainty="UNKNOWN",
+            reconciliation_state="PENDING",
+        )
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO handa_live.submission_attempt
+            (attempt_id, intent_id, attempt_sequence, venue, account_scope,
+             client_order_id, submission_lifecycle_state)
+            VALUES
+              ('a-1', 'i-1', 1, 'BINANCE_SPOT', 'test-account', 'client-1', 'MAY_HAVE_BEEN_SUBMITTED')
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO handa_live.exchange_evidence
+            (evidence_id, intent_id, attempt_id, evidence_sequence, symbol,
+             exchange_order_id, raw_snapshot, observed_at)
+            VALUES ('e-1', 'i-1', 'a-1', 1, 'BTCUSDC', 'order-1', '{}', CURRENT_TIMESTAMP)
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO handa_live.normalized_evidence
+            (normalized_revision_id, evidence_id, intent_id, revision_sequence,
+             normalized_status, provenance, normalized_payload)
+            VALUES ('n-1', 'e-1', 'i-1', 1, 'UNKNOWN', '{}', '{}')
+            """
+        )
+
+        if second_revision:
+            cursor.execute(
+                """
+                INSERT INTO handa_live.submission_attempt
+                (attempt_id, intent_id, attempt_sequence, venue, account_scope,
+                 client_order_id, submission_lifecycle_state)
+                VALUES
+                  ('a-1b', 'i-1', 2, 'BINANCE_SPOT', 'test-account', 'client-1', 'MAY_HAVE_BEEN_SUBMITTED')
+                """
+            )
+            cursor.execute(
+                """
+                INSERT INTO handa_live.exchange_evidence
+                (evidence_id, intent_id, attempt_id, evidence_sequence, symbol,
+                 exchange_order_id, raw_snapshot, observed_at)
+                VALUES ('e-1b', 'i-1', 'a-1b', 2, 'BTCUSDC', 'order-1', '{}', CURRENT_TIMESTAMP)
+                """
+            )
+            cursor.execute(
+                """
+                INSERT INTO handa_live.normalized_evidence
+                (normalized_revision_id, evidence_id, intent_id, revision_sequence,
+                 normalized_status, provenance, normalized_payload)
+                VALUES ('n-1b', 'e-1b', 'i-1', 1, 'UNKNOWN', '{}', '{}')
+                """
+            )
+
+        if include_second_intent:
+            cursor.execute(
+                """
+                INSERT INTO handa_live.submission_attempt
+                (attempt_id, intent_id, attempt_sequence, venue, account_scope,
+                 client_order_id, submission_lifecycle_state)
+                VALUES
+                  ('a-2', 'i-2', 1, 'BINANCE_SPOT', 'test-account', 'client-2', 'MAY_HAVE_BEEN_SUBMITTED')
+                """
+            )
+            cursor.execute(
+                """
+                INSERT INTO handa_live.exchange_evidence
+                (evidence_id, intent_id, attempt_id, evidence_sequence, symbol,
+                 exchange_order_id, raw_snapshot, observed_at)
+                VALUES ('e-2', 'i-2', 'a-2', 1, 'ETHUSDC', 'order-2', '{}', CURRENT_TIMESTAMP)
+                """
+            )
+            cursor.execute(
+                """
+                INSERT INTO handa_live.normalized_evidence
+                (normalized_revision_id, evidence_id, intent_id, revision_sequence,
+                 normalized_status, provenance, normalized_payload)
+                VALUES ('n-2', 'e-2', 'i-2', 1, 'UNKNOWN', '{}', '{}')
+                """
+            )
+
+        cursor.execute(
+            """
+            INSERT INTO handa_live.reconciliation
+            (reconciliation_id, intent_id, decision_sequence,
+             reconciliation_state, execution_certainty)
+            VALUES ('r-1', 'i-1', 1, 'PENDING', 'UNKNOWN')
+            """
+        )
+
+
+def _insert_reconciliation_evidence(connection, reconciliation_id, intent_id, normalized_revision_id):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO handa_live.reconciliation_evidence
+            (reconciliation_id, intent_id, normalized_revision_id)
+            VALUES (%s, %s, %s)
+            """,
+            (reconciliation_id, intent_id, normalized_revision_id),
+        )
+
+
+def test_migration_003_relation_shape_and_history_is_additive(schema_v2_connection):
+    connection = schema_v2_connection
+    _insert_lineage_fixture(connection)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'handa_live'
+              AND table_name = 'reconciliation_evidence'
+            ORDER BY ordinal_position
+            """
+        )
+        assert [row[0] for row in cursor.fetchall()] == [
+            "reconciliation_id",
+            "intent_id",
+            "normalized_revision_id",
+        ]
+        cursor.execute(
+            "SELECT COUNT(*) FROM handa_live.reconciliation_evidence"
+        )
+        assert cursor.fetchone() == (0,)
+
+
+def test_reconciliation_evidence_rejects_unknown_reconciliation(schema_v2_connection):
+    connection = schema_v2_connection
+    _insert_lineage_fixture(connection)
+    with pytest.raises(psycopg2.errors.ForeignKeyViolation):
+        _insert_reconciliation_evidence(connection, "missing", "i-1", "n-1")
+
+
+def test_reconciliation_evidence_rejects_unknown_normalized_revision(schema_v2_connection):
+    connection = schema_v2_connection
+    _insert_lineage_fixture(connection)
+    with pytest.raises(psycopg2.errors.ForeignKeyViolation):
+        _insert_reconciliation_evidence(connection, "r-1", "i-1", "missing")
+
+
+def test_reconciliation_evidence_rejects_cross_intent_association(schema_v2_connection):
+    connection = schema_v2_connection
+    _insert_lineage_fixture(connection, include_second_intent=True)
+    with pytest.raises(psycopg2.errors.ForeignKeyViolation):
+        _insert_reconciliation_evidence(connection, "r-1", "i-1", "n-2")
+
+
+def test_reconciliation_evidence_rejects_duplicate_association(schema_v2_connection):
+    connection = schema_v2_connection
+    _insert_lineage_fixture(connection)
+    _insert_reconciliation_evidence(connection, "r-1", "i-1", "n-1")
+    with pytest.raises(psycopg2.errors.UniqueViolation):
+        _insert_reconciliation_evidence(connection, "r-1", "i-1", "n-1")
+
+
+def test_one_reconciliation_references_multiple_revisions(schema_v2_connection):
+    connection = schema_v2_connection
+    _insert_lineage_fixture(connection, second_revision=True)
+    _insert_reconciliation_evidence(connection, "r-1", "i-1", "n-1")
+    _insert_reconciliation_evidence(connection, "r-1", "i-1", "n-1b")
+    connection.commit()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT normalized_revision_id
+            FROM handa_live.reconciliation_evidence
+            WHERE reconciliation_id = 'r-1'
+            ORDER BY normalized_revision_id
+            """
+        )
+        assert [row[0] for row in cursor.fetchall()] == ["n-1", "n-1b"]
+
+
+def test_one_revision_supports_multiple_reconciliation_decisions(schema_v2_connection):
+    connection = schema_v2_connection
+    _insert_lineage_fixture(connection)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO handa_live.reconciliation
+            (reconciliation_id, intent_id, decision_sequence,
+             reconciliation_state, execution_certainty)
+            VALUES ('r-2', 'i-1', 2, 'BLOCKED', 'UNKNOWN')
+            """
+        )
+    _insert_reconciliation_evidence(connection, "r-1", "i-1", "n-1")
+    _insert_reconciliation_evidence(connection, "r-2", "i-1", "n-1")
+    connection.commit()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT reconciliation_id
+            FROM handa_live.reconciliation_evidence
+            WHERE normalized_revision_id = 'n-1'
+            ORDER BY reconciliation_id
+            """
+        )
+        assert [row[0] for row in cursor.fetchall()] == ["r-1", "r-2"]
+
+
+def test_migrations_001_and_002_do_not_contain_lineage_relation():
+    assert "reconciliation_evidence" not in MIGRATION.read_text(encoding="utf-8")
+    assert "reconciliation_evidence" not in MIGRATION_002.read_text(encoding="utf-8")

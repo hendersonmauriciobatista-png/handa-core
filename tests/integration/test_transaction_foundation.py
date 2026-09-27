@@ -377,6 +377,31 @@ def test_pagination_is_deterministic_and_cursor_bound(probe_table):
                     2,
                     cursor=first.next_cursor,
                 )
+
+            filtered_first = context.enumerate(
+                VERSION_TABLE,
+                (Predicate("id", PredicateOperator.IN, (1, 2, 3)),),
+                ("id",),
+                2,
+            )
+            assert [row["id"] for row in filtered_first.rows] == [1, 2]
+            assert filtered_first.next_cursor
+            filtered_second = context.enumerate(
+                VERSION_TABLE,
+                (Predicate("id", PredicateOperator.IN, (1, 2, 3)),),
+                ("id",),
+                2,
+                cursor=filtered_first.next_cursor,
+            )
+            assert [row["id"] for row in filtered_second.rows] == [3]
+            with pytest.raises(InvalidCapabilityRequest):
+                context.enumerate(
+                    VERSION_TABLE,
+                    (Predicate("id", PredicateOperator.IN, (1, 2)),),
+                    ("id",),
+                    2,
+                    cursor=filtered_first.next_cursor,
+                )
     finally:
         coordinator.close()
 

@@ -530,7 +530,7 @@ def _decode_cursor(cursor: Optional[str], resource: ResourceSpec, predicates: Se
         raise InvalidCapabilityRequest("cursor must be opaque text")
     try:
         payload = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
-        expected = [(predicate.column, predicate.operator.value, _json_value(predicate.value)) for predicate in predicates]
+        expected = [[predicate.column, predicate.operator.value, _json_value(predicate.value)] for predicate in predicates]
         if payload.get("schema") != resource.schema or payload.get("table") != resource.table or tuple(payload.get("ordering", ())) != resource.ordering_columns or payload.get("predicates") != expected:
             raise ValueError
         values = tuple(_decode_json_value(value) for value in payload["values"])

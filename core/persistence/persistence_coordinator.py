@@ -10,8 +10,9 @@ from urllib.parse import urlparse
 import psycopg2
 
 from core.persistence.transaction_context import (
+    ResourceScope,
     TransactionContext,
-    insert_structured,
+    _build_transaction_operations,
 )
 
 
@@ -48,6 +49,7 @@ class PersistenceCoordinator:
         database_url: str,
         expected_identity: DatabaseIdentity,
         connect: Callable[..., Any] = psycopg2.connect,
+        resource_scope: Optional[ResourceScope] = None,
     ) -> None:
         if not database_url:
             raise PersistenceFoundationError("database_url is required")
@@ -59,6 +61,7 @@ class PersistenceCoordinator:
         self._database_url = database_url
         self._expected_identity = expected_identity
         self._connect = connect
+        self._resource_scope = resource_scope or ResourceScope.empty()
         self._closed = False
         self._active_connection: Optional[Any] = None
 
@@ -75,6 +78,7 @@ class PersistenceCoordinator:
         connection = self._open_verified_connection()
         self._active_connection = connection
         active_state = {"active": True}
+        operations = _build_transaction_operations(connection, self._resource_scope)
 
         def is_active() -> bool:
             return active_state["active"]
@@ -82,9 +86,16 @@ class PersistenceCoordinator:
         def insert_operation(table: str, values: Any) -> int:
             if not active_state["active"]:
                 raise RuntimeError("transaction context is inactive")
-            return insert_structured(connection, table, values)
+            return operations["insert"](table, values)
 
-        context = TransactionContext(insert_operation, is_active)
+        context = TransactionContext(
+            insert_operation,
+            is_active,
+            insert_returning_operation=operations["insert_returning"],
+            read_by_key_operation=operations["read_by_key"],
+            enumerate_operation=operations["enumerate"],
+            update_if_version_operation=operations["update_if_version"],
+        )
 
         try:
             try:

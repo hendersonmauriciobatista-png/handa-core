@@ -1,4 +1,5 @@
 import os
+from dataclasses import FrozenInstanceError
 from urllib.parse import urlparse
 
 import psycopg2
@@ -10,7 +11,18 @@ from core.persistence.persistence_coordinator import (
     PersistenceCoordinator,
     PersistenceFoundationError,
 )
-from core.persistence.transaction_context import TransactionContextError
+from core.persistence.transaction_context import (
+    ContextInactive,
+    ImmutableRow,
+    InvalidCapabilityRequest,
+    Predicate,
+    PredicateOperator,
+    ResourceScope,
+    ResourceSpec,
+    TransactionContextError,
+    UniqueConflict,
+    VersionConflict,
+)
 
 
 EXPECTED_IDENTITY = DatabaseIdentity(
@@ -20,6 +32,28 @@ EXPECTED_IDENTITY = DatabaseIdentity(
     user="handa_test",
 )
 PROBE_TABLE = "handa_3a1_transaction_probe"
+VERSION_TABLE = "handa_3a1_version_probe"
+TEST_SCOPE = ResourceScope(
+    (
+        ResourceSpec(
+            schema="public",
+            table=PROBE_TABLE,
+            readable_columns=frozenset({"participant", "marker", "readonly_marker"}),
+            writable_columns=frozenset({"participant", "marker"}),
+            key_columns=frozenset({"participant"}),
+            ordering_columns=("participant",),
+        ),
+        ResourceSpec(
+            schema="public",
+            table=VERSION_TABLE,
+            readable_columns=frozenset({"id", "marker", "version", "nullable_marker"}),
+            writable_columns=frozenset({"id", "marker", "version", "nullable_marker"}),
+            key_columns=frozenset({"id"}),
+            ordering_columns=("id",),
+            version_column="version",
+        ),
+    )
+)
 
 
 def _test_database_url() -> str:
@@ -38,7 +72,12 @@ def _test_database_url() -> str:
 
 
 def _coordinator(database_url: str, connect=psycopg2.connect):
-    return PersistenceCoordinator(database_url, EXPECTED_IDENTITY, connect=connect)
+    return PersistenceCoordinator(
+        database_url,
+        EXPECTED_IDENTITY,
+        connect=connect,
+        resource_scope=TEST_SCOPE,
+    )
 
 
 class ParticipantA:
@@ -72,7 +111,13 @@ def probe_table():
             cursor.execute(f"DROP TABLE IF EXISTS {PROBE_TABLE}")
             cursor.execute(
                 f"CREATE TABLE {PROBE_TABLE} "
-                "(participant TEXT PRIMARY KEY, marker TEXT NOT NULL)"
+                "(participant TEXT PRIMARY KEY, marker TEXT NOT NULL, "
+                "readonly_marker TEXT NOT NULL DEFAULT 'fixed')"
+            )
+            cursor.execute(
+                f"CREATE TABLE {VERSION_TABLE} "
+                "(id INTEGER PRIMARY KEY, marker TEXT NOT NULL, "
+                "version INTEGER NOT NULL, nullable_marker TEXT)"
             )
         connection.commit()
         yield database_url
@@ -80,6 +125,7 @@ def probe_table():
         try:
             with connection.cursor() as cursor:
                 cursor.execute(f"DROP TABLE IF EXISTS {PROBE_TABLE}")
+                cursor.execute(f"DROP TABLE IF EXISTS {VERSION_TABLE}")
             connection.commit()
         finally:
             connection.close()
@@ -138,7 +184,7 @@ def test_context_has_only_structured_participant_capability(probe_table):
             assert not hasattr(context, "commit")
             assert not hasattr(context, "rollback")
             assert not hasattr(context, "close")
-            with pytest.raises(ValueError):
+            with pytest.raises(InvalidCapabilityRequest):
                 context.insert("probe; COMMIT", {"value": "blocked"})
     finally:
         coordinator.close()
@@ -164,7 +210,14 @@ def test_context_uses_local_capability_without_global_registry(probe_table):
             with pytest.raises(AttributeError):
                 context.__dict__
 
-            assert context.__slots__ == ("_insert_operation", "_is_active_operation")
+            assert context.__slots__ == (
+                "_insert_operation",
+                "_insert_returning_operation",
+                "_read_by_key_operation",
+                "_enumerate_operation",
+                "_update_if_version_operation",
+                "_is_active_operation",
+            )
             assert not hasattr(transaction_context_module, "_CONTEXT_CONNECTIONS")
             assert "WeakKeyDictionary" not in vars(transaction_context_module)
     finally:
@@ -175,10 +228,246 @@ def test_structured_identifiers_reject_sql_fragments(probe_table):
     coordinator = _coordinator(probe_table)
     try:
         with coordinator.transaction() as context:
-            with pytest.raises(ValueError):
+            with pytest.raises(InvalidCapabilityRequest):
                 context.insert("/* comment */ probe", {"value": "blocked"})
-            with pytest.raises(ValueError):
+            with pytest.raises(InvalidCapabilityRequest):
                 context.insert(PROBE_TABLE, {"marker; COMMIT": "blocked"})
+    finally:
+        coordinator.close()
+
+
+def test_resource_scope_rejects_unauthorized_resources_and_columns(probe_table):
+    coordinator = _coordinator(probe_table)
+    try:
+        with coordinator.transaction() as context:
+            with pytest.raises(InvalidCapabilityRequest):
+                context.insert("not_authorized", {"value": "blocked"})
+            with pytest.raises(InvalidCapabilityRequest):
+                context.insert(PROBE_TABLE, {"readonly_marker": "blocked"})
+            with pytest.raises(InvalidCapabilityRequest):
+                context.read_by_key(
+                    PROBE_TABLE,
+                    {"unknown_key": "blocked"},
+                    ("participant",),
+                )
+    finally:
+        coordinator.close()
+
+
+def test_resource_scope_is_immutable():
+    scope = ResourceScope(list(TEST_SCOPE.resources))
+    assert isinstance(scope.resources, tuple)
+    assert isinstance(scope.resources[0].readable_columns, frozenset)
+    with pytest.raises(FrozenInstanceError):
+        scope.resources = ()
+
+
+def test_value_injection_remains_data(probe_table):
+    payload = "value'); DROP TABLE handa_3a1_transaction_probe; --"
+    coordinator = _coordinator(probe_table)
+    try:
+        with coordinator.transaction() as context:
+            context.insert(PROBE_TABLE, {"participant": "payload", "marker": payload})
+        assert ("payload", payload) in _rows(probe_table)
+        assert _rows(probe_table) == [("payload", payload)]
+    finally:
+        coordinator.close()
+
+
+def test_structured_reads_support_only_approved_predicates(probe_table):
+    coordinator = _coordinator(probe_table)
+    try:
+        with coordinator.transaction() as context:
+            for row in (
+                {"id": 1, "marker": "one", "version": 0, "nullable_marker": None},
+                {"id": 2, "marker": "two", "version": 0, "nullable_marker": "present"},
+                {"id": 3, "marker": "three", "version": 0, "nullable_marker": None},
+            ):
+                context.insert(VERSION_TABLE, row)
+
+            assert context.read_by_key(VERSION_TABLE, {"id": 99}, ("id",)) is None
+            eq_page = context.enumerate(
+                VERSION_TABLE,
+                (Predicate("marker", PredicateOperator.EQ, "two"),),
+                ("id", "marker"),
+                10,
+            )
+            assert [row["id"] for row in eq_page.rows] == [2]
+
+            in_page = context.enumerate(
+                VERSION_TABLE,
+                (Predicate("id", PredicateOperator.IN, (1, 3)),),
+                ("id",),
+                10,
+            )
+            assert [row["id"] for row in in_page.rows] == [1, 3]
+
+            null_page = context.enumerate(
+                VERSION_TABLE,
+                (Predicate("nullable_marker", PredicateOperator.IS_NULL),),
+                ("id",),
+                10,
+            )
+            assert [row["id"] for row in null_page.rows] == [1, 3]
+
+            not_null_page = context.enumerate(
+                VERSION_TABLE,
+                (Predicate("nullable_marker", PredicateOperator.IS_NOT_NULL),),
+                ("id",),
+                10,
+            )
+            assert [row["id"] for row in not_null_page.rows] == [2]
+
+            with pytest.raises(InvalidCapabilityRequest):
+                context.enumerate(
+                    VERSION_TABLE,
+                    (Predicate("id", "=", 1),),
+                    ("id",),
+                    10,
+                )
+            with pytest.raises(InvalidCapabilityRequest):
+                context.enumerate(
+                    VERSION_TABLE,
+                    (Predicate("id || 'x'", PredicateOperator.EQ, 1),),
+                    ("id",),
+                    10,
+                )
+    finally:
+        coordinator.close()
+
+
+@pytest.mark.parametrize("limit", [0, -1, 101, True, False, None])
+def test_enumeration_limit_is_bounded(probe_table, limit):
+    coordinator = _coordinator(probe_table)
+    try:
+        with coordinator.transaction() as context:
+            with pytest.raises(InvalidCapabilityRequest):
+                context.enumerate(VERSION_TABLE, (), ("id",), limit)
+    finally:
+        coordinator.close()
+
+
+def test_pagination_is_deterministic_and_cursor_bound(probe_table):
+    coordinator = _coordinator(probe_table)
+    try:
+        with coordinator.transaction() as context:
+            for row_id in (1, 2, 3):
+                context.insert(
+                    VERSION_TABLE,
+                    {
+                        "id": row_id,
+                        "marker": str(row_id),
+                        "version": 0,
+                        "nullable_marker": None,
+                    },
+                )
+            first = context.enumerate(VERSION_TABLE, (), ("id",), 2)
+            assert [row["id"] for row in first.rows] == [1, 2]
+            assert first.next_cursor
+            second = context.enumerate(
+                VERSION_TABLE, (), ("id",), 2, cursor=first.next_cursor
+            )
+            assert [row["id"] for row in second.rows] == [3]
+            assert second.next_cursor is None
+            with pytest.raises(InvalidCapabilityRequest):
+                context.enumerate(
+                    VERSION_TABLE,
+                    (Predicate("id", PredicateOperator.EQ, 1),),
+                    ("id",),
+                    2,
+                    cursor=first.next_cursor,
+                )
+    finally:
+        coordinator.close()
+
+
+def test_insert_returning_and_results_are_immutable(probe_table):
+    coordinator = _coordinator(probe_table)
+    try:
+        with coordinator.transaction() as context:
+            returned = context.insert_returning(
+                VERSION_TABLE,
+                {"id": 1, "marker": "one", "version": 0, "nullable_marker": None},
+                ("id", "marker", "version"),
+            )
+            assert isinstance(returned, ImmutableRow)
+            assert returned["version"] == 0
+            with pytest.raises(TypeError):
+                returned["marker"] = "changed"
+            page = context.enumerate(VERSION_TABLE, (), ("id",), 10)
+            with pytest.raises(AttributeError):
+                page.rows.append(returned)
+    finally:
+        coordinator.close()
+
+
+def test_update_if_version_is_atomic_and_stale_version_fails(probe_table):
+    coordinator = _coordinator(probe_table)
+    try:
+        with coordinator.transaction() as context:
+            context.insert(
+                VERSION_TABLE,
+                {"id": 1, "marker": "one", "version": 0, "nullable_marker": None},
+            )
+            updated = context.update_if_version(
+                VERSION_TABLE,
+                {"id": 1},
+                0,
+                {"marker": "updated"},
+                ("id", "marker", "version"),
+            )
+            assert dict(updated) == {"id": 1, "marker": "updated", "version": 1}
+            with pytest.raises(VersionConflict):
+                context.update_if_version(
+                    VERSION_TABLE,
+                    {"id": 1},
+                    0,
+                    {"marker": "stale"},
+                    ("id", "marker", "version"),
+                )
+    finally:
+        coordinator.close()
+
+
+def test_unique_conflict_is_explicit_and_not_upsert(probe_table):
+    coordinator = _coordinator(probe_table)
+    try:
+        with pytest.raises(UniqueConflict):
+            with coordinator.transaction() as context:
+                context.insert(PROBE_TABLE, {"participant": "same", "marker": "first"})
+                context.insert(PROBE_TABLE, {"participant": "same", "marker": "second"})
+        assert _rows(probe_table) == []
+    finally:
+        coordinator.close()
+
+
+def test_constraint_failure_is_not_success(probe_table):
+    coordinator = _coordinator(probe_table)
+    try:
+        with pytest.raises(TransactionContextError) as failure:
+            with coordinator.transaction() as context:
+                context.insert(PROBE_TABLE, {"participant": "invalid", "marker": None})
+        assert failure.value.code == "CONSTRAINT_FAILURE"
+        assert _rows(probe_table) == []
+    finally:
+        coordinator.close()
+
+
+def test_all_structured_operations_reject_inactive_context(probe_table):
+    coordinator = _coordinator(probe_table)
+    holder = []
+    try:
+        with coordinator.transaction() as context:
+            holder.append(context)
+        context = holder[0]
+        with pytest.raises(ContextInactive):
+            context.insert_returning(PROBE_TABLE, {"participant": "x", "marker": "x"}, ("participant",))
+        with pytest.raises(ContextInactive):
+            context.read_by_key(PROBE_TABLE, {"participant": "x"}, ("participant",))
+        with pytest.raises(ContextInactive):
+            context.enumerate(PROBE_TABLE, (), ("participant",), 1)
+        with pytest.raises(ContextInactive):
+            context.update_if_version(PROBE_TABLE, {"participant": "x"}, 0, {"marker": "x"}, ("participant",))
     finally:
         coordinator.close()
 

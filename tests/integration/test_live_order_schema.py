@@ -1,4 +1,5 @@
 import os
+import json
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlparse
@@ -31,6 +32,13 @@ MIGRATION_003 = (
     / "persistence"
     / "migrations"
     / "003_reconciliation_evidence.sql"
+)
+MIGRATION_004 = (
+    Path(__file__).parents[2]
+    / "core"
+    / "persistence"
+    / "migrations"
+    / "004_external_order_observation_contract.sql"
 )
 
 
@@ -82,6 +90,7 @@ def schema_v2_connection():
             cursor.execute(MIGRATION_002.read_text(encoding="utf-8"))
             if MIGRATION_003.exists():
                 cursor.execute(MIGRATION_003.read_text(encoding="utf-8"))
+            cursor.execute(MIGRATION_004.read_text(encoding="utf-8"))
         connection.commit()
         yield connection
     finally:
@@ -827,3 +836,232 @@ def test_one_revision_supports_multiple_reconciliation_decisions(schema_v2_conne
 def test_migrations_001_and_002_do_not_contain_lineage_relation():
     assert "reconciliation_evidence" not in MIGRATION.read_text(encoding="utf-8")
     assert "reconciliation_evidence" not in MIGRATION_002.read_text(encoding="utf-8")
+
+
+MIGRATION_004_COLUMNS = (
+    "client_order_id_observed",
+    "order_type",
+    "time_in_force",
+    "orig_qty",
+    "orig_quote_order_qty",
+    "executed_qty",
+    "cumulative_quote_qty",
+    "observation_class",
+    "observation_source",
+)
+
+OBSERVATION_CLASSES = (
+    "ORDER_STATE",
+    "EXECUTION_EVENT",
+    "TRADE_RECORD",
+)
+
+OBSERVATION_SOURCES = (
+    "BINANCE_SPOT_ORDER_RESPONSE",
+    "BINANCE_SPOT_ORDER_QUERY",
+    "BINANCE_SPOT_EXECUTION_REPORT",
+    "BINANCE_SPOT_TRADE_QUERY",
+)
+
+
+def _assert_migration_004_columns(connection):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'handa_live'
+              AND table_name = 'exchange_evidence'
+              AND column_name = ANY(%s)
+            ORDER BY ordinal_position
+            """,
+            (list(MIGRATION_004_COLUMNS),),
+        )
+        assert [row[0] for row in cursor.fetchall()] == list(MIGRATION_004_COLUMNS)
+
+
+def _insert_future_observation(connection, evidence_id, evidence_sequence, **overrides):
+    values = {
+        "evidence_id": evidence_id,
+        "intent_id": "i-1",
+        "evidence_sequence": evidence_sequence,
+        "symbol": "BTCUSDC",
+        "exchange_order_id": "order-1",
+        "raw_snapshot": '{"status":"FILLED"}',
+        "observed_at": "CURRENT_TIMESTAMP",
+        "observation_class": "ORDER_STATE",
+        "observation_source": "BINANCE_SPOT_ORDER_QUERY",
+    }
+    values.update(overrides)
+    columns = ", ".join(values)
+    placeholders = ", ".join(
+        "CURRENT_TIMESTAMP" if value == "CURRENT_TIMESTAMP" else "%s"
+        for value in values.values()
+    )
+    parameters = tuple(
+        value for value in values.values() if value != "CURRENT_TIMESTAMP"
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"INSERT INTO handa_live.exchange_evidence ({columns}) VALUES ({placeholders})",
+            parameters,
+        )
+
+
+def test_migration_004_columns_are_present(schema_v2_connection):
+    _assert_migration_004_columns(schema_v2_connection)
+
+
+def test_historical_rows_remain_valid_with_new_columns_null(schema_v2_connection):
+    connection = schema_v2_connection
+    _assert_migration_004_columns(connection)
+    _insert_intent(connection, "i-1", "client-1")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO handa_live.exchange_evidence
+            (evidence_id, intent_id, evidence_sequence, symbol,
+             raw_snapshot, observed_at)
+            VALUES ('e-1', 'i-1', 1, 'BTCUSDC', '{}', CURRENT_TIMESTAMP)
+            """
+        )
+        cursor.execute(
+            """
+            SELECT client_order_id_observed, order_type, time_in_force,
+                   orig_qty, orig_quote_order_qty, executed_qty,
+                   cumulative_quote_qty, observation_class, observation_source
+            FROM handa_live.exchange_evidence
+            WHERE evidence_id = 'e-1'
+            """
+        )
+        assert cursor.fetchone() == (None,) * 9
+
+
+def test_minimal_structured_observation_allows_optional_identifiers_absent(
+    schema_v2_connection,
+):
+    connection = schema_v2_connection
+    _assert_migration_004_columns(connection)
+    _insert_intent(connection, "i-1", "client-1")
+    _insert_future_observation(
+        connection,
+        "e-1",
+        1,
+        exchange_order_id=None,
+        observation_class="ORDER_STATE",
+        observation_source="BINANCE_SPOT_ORDER_RESPONSE",
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["orig_qty", "orig_quote_order_qty", "executed_qty"],
+)
+def test_structured_quantities_reject_negative_values(schema_v2_connection, field):
+    connection = schema_v2_connection
+    _assert_migration_004_columns(connection)
+    _insert_intent(connection, "i-1", "client-1")
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        _insert_future_observation(connection, "e-1", 1, **{field: Decimal("-1")})
+
+
+def test_structured_quantities_accept_non_negative_values(schema_v2_connection):
+    connection = schema_v2_connection
+    _assert_migration_004_columns(connection)
+    _insert_intent(connection, "i-1", "client-1")
+    _insert_future_observation(
+        connection,
+        "e-1",
+        1,
+        orig_qty=Decimal("0"),
+        orig_quote_order_qty=Decimal("10"),
+        executed_qty=Decimal("0.1"),
+        cumulative_quote_qty=Decimal("10.01"),
+    )
+
+
+def test_observation_class_uses_only_frozen_vocabulary(schema_v2_connection):
+    connection = schema_v2_connection
+    _assert_migration_004_columns(connection)
+    _insert_intent(connection, "i-1", "client-1")
+    for sequence, value in enumerate(OBSERVATION_CLASSES, start=1):
+        _insert_future_observation(connection, f"e-{sequence}", sequence, observation_class=value)
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        _insert_future_observation(connection, "e-invalid", 4, observation_class="OTHER")
+
+
+def test_observation_source_uses_only_frozen_candidate_vocabulary(schema_v2_connection):
+    connection = schema_v2_connection
+    _assert_migration_004_columns(connection)
+    _insert_intent(connection, "i-1", "client-1")
+    for sequence, value in enumerate(OBSERVATION_SOURCES, start=1):
+        _insert_future_observation(connection, f"e-{sequence}", sequence, observation_source=value)
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        _insert_future_observation(connection, "e-invalid", 5, observation_source="OTHER")
+
+
+def test_different_sources_for_same_order_can_coexist(schema_v2_connection):
+    connection = schema_v2_connection
+    _assert_migration_004_columns(connection)
+    _insert_intent(connection, "i-1", "client-1")
+    _insert_future_observation(
+        connection,
+        "e-1",
+        1,
+        observation_source="BINANCE_SPOT_ORDER_QUERY",
+    )
+    _insert_future_observation(
+        connection,
+        "e-2",
+        2,
+        observation_source="BINANCE_SPOT_EXECUTION_REPORT",
+    )
+
+
+def test_existing_intent_evidence_sequence_unique_constraint_remains_enforced(
+    schema_v2_connection,
+):
+    connection = schema_v2_connection
+    _assert_migration_004_columns(connection)
+    _insert_intent(connection, "i-1", "client-1")
+    _insert_future_observation(connection, "e-1", 1)
+    with pytest.raises(psycopg2.errors.UniqueViolation):
+        _insert_future_observation(connection, "e-2", 1)
+
+
+def test_raw_snapshot_remains_preserved_with_structured_projection(schema_v2_connection):
+    connection = schema_v2_connection
+    _assert_migration_004_columns(connection)
+    _insert_intent(connection, "i-1", "client-1")
+    raw_snapshot = '{"status":"PARTIALLY_FILLED","executedQty":"0.1"}'
+    _insert_future_observation(connection, "e-1", 1, raw_snapshot=raw_snapshot)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT raw_snapshot::text FROM handa_live.exchange_evidence WHERE evidence_id = 'e-1'"
+        )
+        retrieved_raw_snapshot = cursor.fetchone()[0]
+        assert json.loads(retrieved_raw_snapshot) == json.loads(raw_snapshot)
+
+
+def test_structured_observation_does_not_create_downstream_effects(schema_v2_connection):
+    connection = schema_v2_connection
+    _assert_migration_004_columns(connection)
+    _insert_intent(connection, "i-1", "client-1")
+    _insert_future_observation(connection, "e-1", 1)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM handa_live.normalized_evidence")
+        assert cursor.fetchone() == (0,)
+        cursor.execute("SELECT COUNT(*) FROM handa_live.trade_effect")
+        assert cursor.fetchone() == (0,)
+        cursor.execute("SELECT COUNT(*) FROM handa_live.reconciliation")
+        assert cursor.fetchone() == (0,)
+
+
+def test_migration_history_001_002_003_remains_additive():
+    migration_text = MIGRATION.read_text(encoding="utf-8")
+    migration_002_text = MIGRATION_002.read_text(encoding="utf-8")
+    migration_003_text = MIGRATION_003.read_text(encoding="utf-8")
+    for column in MIGRATION_004_COLUMNS:
+        assert column not in migration_text
+        assert column not in migration_002_text
+        assert column not in migration_003_text

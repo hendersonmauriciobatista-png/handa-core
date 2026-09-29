@@ -162,6 +162,7 @@ class TransactionContext:
         "_read_by_key_operation",
         "_enumerate_operation",
         "_update_if_version_operation",
+        "_allocate_next_sequence_operation",
         "_is_active_operation",
     )
 
@@ -174,12 +175,14 @@ class TransactionContext:
         read_by_key_operation: Callable[..., Optional[ImmutableRow]],
         enumerate_operation: Callable[..., ImmutablePage],
         update_if_version_operation: Callable[..., ImmutableRow],
+        allocate_next_sequence_operation: Callable[..., int],
     ) -> None:
         self._insert_operation = insert_operation
         self._insert_returning_operation = insert_returning_operation
         self._read_by_key_operation = read_by_key_operation
         self._enumerate_operation = enumerate_operation
         self._update_if_version_operation = update_if_version_operation
+        self._allocate_next_sequence_operation = allocate_next_sequence_operation
         self._is_active_operation = is_active_operation
 
     @property
@@ -238,6 +241,19 @@ class TransactionContext:
             returning_columns,
         )
 
+    def allocate_next_sequence(
+        self,
+        table: str,
+        owner_column: str,
+        owner_value: Any,
+        sequence_column: str,
+        lock_table: str,
+    ) -> int:
+        self._ensure_active()
+        return self._allocate_next_sequence_operation(
+            table, owner_column, owner_value, sequence_column, lock_table
+        )
+
     def _ensure_active(self) -> None:
         if not self.is_active:
             raise ContextInactive("transaction context is inactive")
@@ -268,6 +284,9 @@ def _build_transaction_operations(connection: Any, scope: ResourceScope) -> dict
             changes,
             returning_columns,
         ),
+        "allocate_next_sequence": lambda table, owner_column, owner_value, sequence_column, lock_table: _allocate_next_sequence(
+            connection, scope, table, owner_column, owner_value, sequence_column, lock_table
+        ),
     }
 
 
@@ -277,6 +296,48 @@ def _insert_structured(connection: Any, scope: ResourceScope, table: str, values
     with _cursor(connection) as cursor:
         _execute(cursor, statement, parameters)
         return cursor.rowcount
+
+
+def _allocate_next_sequence(
+    connection: Any,
+    scope: ResourceScope,
+    table: str,
+    owner_column: str,
+    owner_value: Any,
+    sequence_column: str,
+    lock_table: str,
+) -> int:
+    resource = scope.resolve(table)
+    lock_resource = scope.resolve(lock_table)
+    if owner_column not in resource.readable_columns:
+        raise InvalidCapabilityRequest("sequence owner is outside the target resource")
+    if sequence_column not in resource.readable_columns:
+        raise InvalidCapabilityRequest("sequence column is outside the target resource")
+    if owner_column not in lock_resource.readable_columns:
+        raise InvalidCapabilityRequest("sequence lock owner is outside the lock resource")
+    statement = sql.SQL(
+        "SELECT 1 FROM {lock_schema}.{lock_table} "
+        "WHERE {owner_column} = %s FOR UPDATE"
+    ).format(
+        lock_schema=sql.Identifier(lock_resource.schema),
+        lock_table=sql.Identifier(lock_resource.table),
+        owner_column=sql.Identifier(owner_column),
+    )
+    maximum = sql.SQL(
+        "SELECT COALESCE(MAX({sequence_column}), 0) + 1 "
+        "FROM {schema}.{table} WHERE {owner_column} = %s"
+    ).format(
+        sequence_column=sql.Identifier(sequence_column),
+        schema=sql.Identifier(resource.schema),
+        table=sql.Identifier(resource.table),
+        owner_column=sql.Identifier(owner_column),
+    )
+    with _cursor(connection) as cursor:
+        _execute(cursor, statement, (owner_value,))
+        if cursor.fetchone() is None:
+            raise InvalidCapabilityRequest("sequence owner does not exist")
+        _execute(cursor, maximum, (owner_value,))
+        return int(cursor.fetchone()[0])
 
 
 def _insert_returning(connection: Any, scope: ResourceScope, table: str, values: Mapping[str, Any], returning_columns: Sequence[str]) -> ImmutableRow:

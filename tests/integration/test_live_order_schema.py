@@ -40,6 +40,13 @@ MIGRATION_004 = (
     / "migrations"
     / "004_external_order_observation_contract.sql"
 )
+MIGRATION_005 = (
+    Path(__file__).parents[2]
+    / "core"
+    / "persistence"
+    / "migrations"
+    / "005_decision_ledger.sql"
+)
 
 
 def _connect_test_database():
@@ -91,6 +98,7 @@ def schema_v2_connection():
             if MIGRATION_003.exists():
                 cursor.execute(MIGRATION_003.read_text(encoding="utf-8"))
             cursor.execute(MIGRATION_004.read_text(encoding="utf-8"))
+            cursor.execute(MIGRATION_005.read_text(encoding="utf-8"))
         connection.commit()
         yield connection
     finally:

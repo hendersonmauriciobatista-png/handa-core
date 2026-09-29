@@ -41,6 +41,27 @@ MIGRATION_002 = (
     / "migrations"
     / "002_relax_may_have_been_submitted_certainty.sql"
 )
+MIGRATION_003 = (
+    Path(__file__).parents[2]
+    / "core"
+    / "persistence"
+    / "migrations"
+    / "003_reconciliation_evidence.sql"
+)
+MIGRATION_004 = (
+    Path(__file__).parents[2]
+    / "core"
+    / "persistence"
+    / "migrations"
+    / "004_external_order_observation_contract.sql"
+)
+MIGRATION_005 = (
+    Path(__file__).parents[2]
+    / "core"
+    / "persistence"
+    / "migrations"
+    / "005_decision_ledger.sql"
+)
 
 
 def _connect_test_database():
@@ -66,6 +87,9 @@ def store_and_connection():
         cursor.execute("DROP SCHEMA IF EXISTS handa_live CASCADE")
         cursor.execute(MIGRATION.read_text(encoding="utf-8"))
         cursor.execute(MIGRATION_002.read_text(encoding="utf-8"))
+        cursor.execute(MIGRATION_003.read_text(encoding="utf-8"))
+        cursor.execute(MIGRATION_004.read_text(encoding="utf-8"))
+        cursor.execute(MIGRATION_005.read_text(encoding="utf-8"))
     connection.commit()
     coordinator = PersistenceCoordinator(
         database_url,

@@ -95,6 +95,7 @@ class PersistenceCoordinator:
             read_by_key_operation=operations["read_by_key"],
             enumerate_operation=operations["enumerate"],
             update_if_version_operation=operations["update_if_version"],
+            allocate_next_sequence_operation=operations["allocate_next_sequence"],
         )
 
         try:

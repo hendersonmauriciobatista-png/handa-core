@@ -216,6 +216,7 @@ def test_context_uses_local_capability_without_global_registry(probe_table):
                 "_read_by_key_operation",
                 "_enumerate_operation",
                 "_update_if_version_operation",
+                "_allocate_next_sequence_operation",
                 "_is_active_operation",
             )
             assert not hasattr(transaction_context_module, "_CONTEXT_CONNECTIONS")

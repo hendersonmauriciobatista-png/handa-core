@@ -7,7 +7,7 @@ import json
 import base64
 from datetime import datetime, timezone
 from uuid import uuid4
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from typing import Any, Iterable, Iterator, Mapping, Optional
 
@@ -56,6 +56,21 @@ class EffectApplicationLedger:
         except BaseException:
             self._connection.rollback()
             raise
+
+    @contextmanager
+    def transaction_scope(self) -> Iterator[Any]:
+        """Expose the ledger's transaction boundary to a domain coordinator."""
+        with self._transaction() as cursor:
+            yield cursor
+
+    @contextmanager
+    def _transaction_or_cursor(self, shared_cursor: Any = None) -> Iterator[Any]:
+        if shared_cursor is not None:
+            with nullcontext(shared_cursor) as cursor:
+                yield cursor
+            return
+        with self._transaction() as cursor:
+            yield cursor
 
     def create_effect_request(
         self,
@@ -125,14 +140,15 @@ class EffectApplicationLedger:
         *,
         application_attempt_id: str,
         claimant_id: str = "worker",
+        cursor: Any = None,
     ) -> ApplicationState:
-        with self._transaction() as cursor:
-            request = self._locked_request(cursor, effect_request_id)
+        with self._transaction_or_cursor(cursor) as transaction_cursor:
+            request = self._locked_request(transaction_cursor, effect_request_id)
             if request["current_state"] != "AUTHORIZED":
                 raise EffectApplicationLedgerError("request is not claimable")
-            binding = self._binding(cursor, effect_request_id)
-            self._validate_freshness(cursor, request, binding)
-            cursor.execute(
+            binding = self._binding(transaction_cursor, effect_request_id)
+            self._validate_freshness(transaction_cursor, request, binding)
+            transaction_cursor.execute(
                 f"""
                 INSERT INTO {SCHEMA}.application_attempt
                 (application_attempt_id, effect_request_id, attempt_state,
@@ -141,13 +157,13 @@ class EffectApplicationLedger:
                 """,
                 (application_attempt_id, effect_request_id, claimant_id),
             )
-            cursor.execute(
+            transaction_cursor.execute(
                 f"""
                 SELECT 1
                 """
             )
             self._event(
-                cursor,
+                transaction_cursor,
                 effect_request_id,
                 "AUTHORIZED",
                 "APPLYING",
@@ -156,7 +172,7 @@ class EffectApplicationLedger:
                 application_attempt_id,
                 None,
             )
-            cursor.execute(
+            transaction_cursor.execute(
                 f"""
                 UPDATE {SCHEMA}.effect_request
                 SET current_state='APPLYING', current_attempt_id=%s,
@@ -165,6 +181,8 @@ class EffectApplicationLedger:
                 """,
                 (application_attempt_id, effect_request_id),
             )
+            if cursor is not None:
+                return self._application_state_from_cursor(transaction_cursor, effect_request_id)
         return self.get_application_state(effect_request_id)
 
     def mark_applied(
@@ -174,15 +192,16 @@ class EffectApplicationLedger:
         application_attempt_id: str,
         receipt: Mapping[str, Any],
         evidence_ids: Iterable[str] = (),
+        cursor: Any = None,
     ) -> ApplicationState:
         application_boundary_reached = False
         try:
-            with self._transaction() as cursor:
-                request = self._locked_request(cursor, effect_request_id)
+            with self._transaction_or_cursor(cursor) as transaction_cursor:
+                request = self._locked_request(transaction_cursor, effect_request_id)
                 self._require_attempt(request, application_attempt_id, "APPLYING")
                 receipt_id, payload_hash = self._receipt_fields(receipt)
                 applied_effect_id = uuid4().hex
-                cursor.execute(
+                transaction_cursor.execute(
                     f"""
                     INSERT INTO {SCHEMA}.applied_effect
                     (applied_effect_id, effect_request_id,
@@ -204,14 +223,16 @@ class EffectApplicationLedger:
                 )
                 application_boundary_reached = True
                 self._finish(
-                    cursor,
+                    transaction_cursor,
                     effect_request_id,
                     application_attempt_id,
                     "APPLIED",
                     "application applied",
                 )
+                if cursor is not None:
+                    return self._application_state_from_cursor(transaction_cursor, effect_request_id)
         except Exception as exc:
-            if application_boundary_reached:
+            if application_boundary_reached and cursor is None:
                 self._record_outcome_unknown_after_boundary(
                     effect_request_id,
                     application_attempt_id,
@@ -381,6 +402,23 @@ class EffectApplicationLedger:
                 row = cursor.fetchone()
         finally:
             self._connection.rollback()
+        if row is None:
+            raise EffectApplicationLedgerError("effect request does not exist")
+        return ApplicationState(row[0], row[1], row[3], row[2])
+
+    @staticmethod
+    def _application_state_from_cursor(cursor: Any, effect_request_id: str) -> ApplicationState:
+        cursor.execute(
+            f"""
+            SELECT effect_request_id, current_state, current_attempt_id,
+                   (SELECT applied_effect_id FROM {SCHEMA}.applied_effect a
+                    WHERE a.effect_request_id=e.effect_request_id)
+            FROM {SCHEMA}.effect_request e
+            WHERE effect_request_id=%s
+            """,
+            (effect_request_id,),
+        )
+        row = cursor.fetchone()
         if row is None:
             raise EffectApplicationLedgerError("effect request does not exist")
         return ApplicationState(row[0], row[1], row[3], row[2])

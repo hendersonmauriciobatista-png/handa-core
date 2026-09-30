@@ -5,3 +5,4 @@ requests
 websocket-client
 python-dotenv
 psycopg2-binary
+pycryptodome

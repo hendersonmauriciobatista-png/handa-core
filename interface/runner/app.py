@@ -26,8 +26,9 @@ from core.market.wallet_balance_provider import WalletBalanceProvider
 from core.execution_boundary import build_live_components
 from core.execution_mode import ExecutionMode
 
-from executor.mock_executor import ExecutorMock
+from executor.mock_executor import MockExecutor as ExecutorMock
 from executor.executor_live import ExecutorLive
+from core.execution.execution_fact import ExecutionFact
 
 
 # ============================================================
@@ -211,21 +212,13 @@ class AppRunner:
                 quote_amount=10
             )
 
-            if buy_result.get("status") != "FILLED":
+            if not isinstance(buy_result, ExecutionFact):
                 return {"status": "ERROR", "phase": "BUY", "details": buy_result}
-
-            sell_result = self.ctx.executor_live.place_market_sell_all(
-                symbol="BTCUSDC"
-            )
 
             self.ctx.auto_loop.stop()
             self.ctx.policy.block_live()
 
-            return {
-                "status": "COMPLETED",
-                "buy": buy_result,
-                "sell": sell_result
-            }
+            return buy_result
 
         except Exception as e:
             return {"status": "ERROR", "error": str(e)}

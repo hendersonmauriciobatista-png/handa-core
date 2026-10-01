@@ -20,6 +20,7 @@ from core.position.position_manager import CloseReason
 from core.decision.decision_engine import MarketSnapshot
 from core.learning.adaptive_learning_observer import AdaptiveLearningObserver
 from core.notifications.telegram_notifier import TelegramNotifier
+from core.execution.execution_fact import ExecutionFact
 
 
 class SlotController:
@@ -74,6 +75,7 @@ class SlotController:
         self.profit_today = 0.0
         self.profit_total = 0.0
         self.trade_history = []
+        self._contained_execution_facts = {}
 
         # SLOTS
         self._slots = {slot_id: Slot(slot_id) for slot_id in slot_ids}
@@ -2599,6 +2601,16 @@ class SlotController:
 
             print(f"[SLOT {slot.slot_id}] BUY RESULT: {result}")
 
+            if isinstance(result, ExecutionFact):
+                if not hasattr(self, "_contained_execution_facts"):
+                    self._contained_execution_facts = {}
+                self._contained_execution_facts[slot.slot_id] = result
+                print(
+                    f"[BUY TRACE] stage=EXECUTION_FACT_CONTAINED | symbol={slot.pair} | "
+                    f"slot_id={slot.slot_id} | no_effect=True"
+                )
+                return
+
             if not result:
                 print(f"[SLOT {slot.slot_id}] BUY FALHOU NA EXECUÇÃO: {slot.pair}")
                 print(
@@ -2710,6 +2722,16 @@ class SlotController:
             result = self.executor.execute_sell(slot.pair, reason)
 
             print(f"[SLOT {slot.slot_id}] SELL RESULT: {result}")
+
+            if isinstance(result, ExecutionFact):
+                if not hasattr(self, "_contained_execution_facts"):
+                    self._contained_execution_facts = {}
+                self._contained_execution_facts[slot.slot_id] = result
+                print(
+                    f"[SELL TRACE] stage=EXECUTION_FACT_CONTAINED | symbol={slot.pair} | "
+                    f"slot_id={slot.slot_id} | no_effect=True"
+                )
+                return
 
             if not result:
                 print(f"[SLOT {slot.slot_id}] SELL FAILED")

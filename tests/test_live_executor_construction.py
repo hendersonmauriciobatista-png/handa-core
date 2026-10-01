@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from core.execution_boundary import build_live_components
+from core.execution.execution_fact import ExecutionFact, ExternalOrderStatus
 from core.execution_mode import ExecutionMode
 from executor.executor_live import ExecutorLive
 
@@ -246,8 +247,18 @@ def test_root_live_executor_preserves_buy_sell_lot_size_and_notifier():
     buy_result = executor.place_market_buy_quote("BTCUSDC", 10.0)
     sell_result = executor.place_market_sell_all("BTCUSDC")
 
-    assert buy_result["status"] == "FILLED"
-    assert sell_result["status"] == "FILLED"
+    assert isinstance(buy_result, ExecutionFact)
+    assert isinstance(sell_result, ExecutionFact)
+    assert buy_result.external_status is ExternalOrderStatus.FILLED
+    assert sell_result.external_status is ExternalOrderStatus.FILLED
+    assert buy_result.symbol == "BTCUSDC"
+    assert buy_result.side == "BUY"
+    assert buy_result.external_order_id == "1"
+    assert float(buy_result.executed_base_qty) == pytest.approx(0.1)
+    assert sell_result.symbol == "BTCUSDC"
+    assert sell_result.side == "SELL"
+    assert sell_result.external_order_id == "2"
+    assert float(sell_result.executed_base_qty) == pytest.approx(1.2)
     assert client.orders[0]["quoteOrderQty"] == 10.0
     assert client.orders[0]["side"] == "BUY"
     assert client.orders[1]["side"] == "SELL"

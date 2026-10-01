@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 from datetime import datetime
+from core.execution.execution_fact import normalize_external_execution
 
 try:
     from core.persistence.postgres_state_repository import PostgresStateRepository
@@ -156,27 +157,6 @@ class MockExecutor:
             "take_profit": take_profit,
         }
 
-        # tracker legado
-        if self.tracker:
-            try:
-                self.tracker.open_position(pair, entry_price, quantity)
-            except Exception:
-                pass
-
-        # position manager
-        if self.position_manager:
-            try:
-                self.position_manager.open_position(
-                    pair=pair,
-                    entry_price=entry_price,
-                    capital_invested=allocated_usdc,
-                    stop_loss=stop_loss,
-                    take_profit=take_profit,
-                    quantity=quantity,
-                )
-            except Exception:
-                pass
-
         if self.live_shadow:
             try:
                 self.live_shadow.record_buy(
@@ -188,14 +168,16 @@ class MockExecutor:
             except Exception as e:
                 print(f"[SHADOW BUY ERROR] {e}")
 
-        return SimpleNamespace(
-            pair=pair,
-            entry_price=entry_price,
-            quantity=quantity,
-            allocated_usdc=allocated_usdc,
-            stop_loss=stop_loss,
-            take_profit=take_profit,
-            status="FILLED",
+        return normalize_external_execution(
+            {
+                "symbol": pair,
+                "side": "BUY",
+                "status": "FILLED",
+                "executedQty": quantity,
+                "cummulativeQuoteQty": allocated_usdc,
+                "fullExtentProven": True,
+                "rawSourceReference": "mock-exchange-buy",
+            }
         )
 
     # =================================================
@@ -207,7 +189,9 @@ class MockExecutor:
 
         pos = self.positions.get(pair)
         if not pos:
-            return None
+            return normalize_external_execution(
+                {"symbol": pair, "side": "SELL", "rawSourceReference": "no-simulated-position"}
+            )
 
         exit_price = self.get_current_price(pair)
 
@@ -236,25 +220,18 @@ class MockExecutor:
         self.balance_usdc += usdc_received
         self._save_state()
 
-        # fecha tracker legado
-        if self.tracker:
-            try:
-                self.tracker.close_position()
-            except Exception:
-                pass
-
-        # PositionManager é fechado pelo SlotController após SELL executado.
-        # O executor apenas remove sua posição local mock e retorna o resultado.
         del self.positions[pair]
 
-        return SimpleNamespace(
-            pair=pair,
-            entry_price=entry_price,
-            exit_price=exit_price,
-            quantity=quantity,
-            net_pnl_usdc=net_pnl_usdc,
-            reason=reason,
-            status="FILLED",
+        return normalize_external_execution(
+            {
+                "symbol": pair,
+                "side": "SELL",
+                "status": "FILLED",
+                "executedQty": quantity,
+                "cummulativeQuoteQty": usdc_received,
+                "fullExtentProven": True,
+                "rawSourceReference": "mock-exchange-sell",
+            }
         )
 
     # =================================================

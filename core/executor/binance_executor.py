@@ -13,6 +13,7 @@ from core.position.position_manager import PositionManager, CloseReason
 from core.position.position_tracker import PositionTracker
 from core.decision.decision_engine import BuySignal
 from core.execution_boundary import is_bound_live_capability
+from core.execution.execution_fact import normalize_external_execution
 
 logger = logging.getLogger(__name__)
 
@@ -271,13 +272,17 @@ class BinanceExecutor:
 
         if signal.entry_price is None or signal.entry_price <= 0:
             logger.error(f"[Executor] BUY cancelado — entry_price inválido para {pair}")
-            return None
+            return normalize_external_execution(
+                {"symbol": pair, "side": "BUY", "rawSourceReference": "local-validation"}
+            )
 
         allocated_usdc = self._safe_float(signal.allocated_usdc)
 
         if allocated_usdc <= 0:
             logger.error(f"[Executor] BUY cancelado — allocated_usdc inválido para {pair}")
-            return None
+            return normalize_external_execution(
+                {"symbol": pair, "side": "BUY", "rawSourceReference": "local-validation"}
+            )
 
         quantity_estimada = allocated_usdc / signal.entry_price
 
@@ -295,7 +300,9 @@ class BinanceExecutor:
 
         if not ok:
             logger.error(f"[Executor] BUY cancelado | {pair} | {reason}")
-            return None
+            return normalize_external_execution(
+                {"symbol": pair, "side": "BUY", "rawSourceReference": "exchange-filter"}
+            )
 
         try:
             order = self.client.order_market_buy(
@@ -305,34 +312,30 @@ class BinanceExecutor:
 
             executed_price = self._extract_order_price(order)
             executed_quantity = self._extract_executed_quantity(order, fallback=quantity_ajustada)
-
             if executed_price <= 0:
-                logger.error(f"[Executor] BUY falhou — preço executado inválido em {pair}")
-                return None
-
-            opened = self.position_manager.open_position(
-                pair=pair,
-                entry_price=executed_price,
-                capital_invested=allocated_usdc,
-                stop_loss=signal.stop_loss,
-                take_profit=signal.take_profit,
-                quantity=executed_quantity,
-            )
-
-            if not opened:
-                logger.error(f"[Executor] BUY executado na Binance, mas falhou ao abrir posição local: {pair}")
-                return None
+                logger.error(f"[Executor] BUY com preço executado inválido em {pair}")
 
             logger.info(
                 f"[Executor] ✅ BUY EXECUTADO | {pair} | "
                 f"price={executed_price:.8f} | qty={executed_quantity:.8f}"
             )
-
-            return opened
+            return normalize_external_execution(
+                order,
+                symbol=pair,
+                side="BUY",
+                averagePrice=executed_price,
+            )
 
         except Exception as e:
             logger.error(f"[Executor] ❌ ERRO BUY | {pair} | {e}")
-            return None
+            return normalize_external_execution(
+                {
+                    "symbol": pair,
+                    "side": "BUY",
+                    "ambiguous_response": True,
+                    "rawSourceReference": "binance-buy-exception",
+                }
+            )
 
     # =========================================================================
     # SELL
@@ -348,13 +351,17 @@ class BinanceExecutor:
 
         if not pos:
             logger.warning(f"[Executor] SELL ignorado — sem posição: {pair}")
-            return None
+            return normalize_external_execution(
+                {"symbol": pair, "side": "SELL", "rawSourceReference": "no-local-position"}
+            )
 
         current_price = self.get_current_price(pair)
 
         if current_price is None or current_price <= 0:
             logger.error(f"[Executor] SELL cancelado — preço atual inválido em {pair}")
-            return None
+            return normalize_external_execution(
+                {"symbol": pair, "side": "SELL", "rawSourceReference": "invalid-market-price"}
+            )
 
         asset = self._pair_to_asset(pair)
         free_balance_real = self._get_asset_free_balance(asset)
@@ -362,11 +369,15 @@ class BinanceExecutor:
 
         if quantity_local <= 0:
             logger.error(f"[Executor] SELL cancelado — quantidade local inválida em {pair}: {quantity_local}")
-            return None
+            return normalize_external_execution(
+                {"symbol": pair, "side": "SELL", "rawSourceReference": "invalid-local-quantity"}
+            )
 
         if free_balance_real <= 0:
             logger.error(f"[Executor] SELL cancelado — saldo livre real zerado em {pair} ({asset})")
-            return None
+            return normalize_external_execution(
+                {"symbol": pair, "side": "SELL", "rawSourceReference": "empty-exchange-balance"}
+            )
 
         quantity_to_sell = min(quantity_local, free_balance_real)
 
@@ -386,7 +397,9 @@ class BinanceExecutor:
 
         if not ok:
             logger.error(f"[Executor] SELL cancelado | {pair} | {reason_qty}")
-            return None
+            return normalize_external_execution(
+                {"symbol": pair, "side": "SELL", "rawSourceReference": "exchange-filter"}
+            )
 
         try:
             order = self.client.order_market_sell(
@@ -399,34 +412,20 @@ class BinanceExecutor:
 
             if executed_price <= 0:
                 logger.error(f"[Executor] ❌ SELL com preço inválido | {pair}")
-                return None
+            return normalize_external_execution(
+                order,
+                symbol=pair,
+                side="SELL",
+                averagePrice=executed_price,
+            )
 
         except Exception as e:
             logger.error(f"[Executor] ❌ SELL FALHOU | {pair} | {e}")
-            return None
-
-        # ajusta quantity real da posição antes de fechar localmente
-        pos.quantity = executed_quantity
-
-        closed = self.position_manager.close_position(
-            pair=pair,
-            exit_price=executed_price,
-            reason=reason,
-        )
-
-        if not closed:
-            logger.error(f"[Executor] ERRO ao fechar posição local: {pair}")
-            return None
-
-        try:
-            self.tracker.record(closed)
-        except Exception as e:
-            logger.warning(f"[Executor] Tracker falhou ao registrar {pair}: {e}")
-
-        logger.info(
-            f"[Executor] ✅ SELL EXECUTADO | {pair} | "
-            f"price={executed_price:.8f} | qty={executed_quantity:.8f} | "
-            f"P&L: {closed.net_pnl_usdc:+.4f} USDC"
-        )
-
-        return closed
+            return normalize_external_execution(
+                {
+                    "symbol": pair,
+                    "side": "SELL",
+                    "ambiguous_response": True,
+                    "rawSourceReference": "binance-sell-exception",
+                }
+            )

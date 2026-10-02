@@ -76,6 +76,7 @@ class SlotController:
         self.profit_total = 0.0
         self.trade_history = []
         self._contained_execution_facts = {}
+        self._contained_non_execution_slots = set()
 
         # SLOTS
         self._slots = {slot_id: Slot(slot_id) for slot_id in slot_ids}
@@ -1645,6 +1646,8 @@ class SlotController:
 
     def run_cycle(self):
 
+        self._contained_non_execution_slots = set()
+
         # ==========================================================
         # 1. SYNC + CONTEXTO GLOBAL
         # ==========================================================
@@ -2442,8 +2445,12 @@ class SlotController:
                 slot.reset()
 
             if slot.state == "RUNNING" and slot.pair:
-                if self.position_manager and not self.position_manager.has_position(
+                if (
+                    slot.slot_id not in self._contained_non_execution_slots
+                    and self.position_manager
+                    and not self.position_manager.has_position(
                     symbol=slot.pair
+                    )
                 ):
                     if slot.entry_price and slot.entry_price > 0:
                         slot._state = "DONE"
@@ -2611,6 +2618,16 @@ class SlotController:
                 )
                 return
 
+            if not isinstance(result, ExecutionFact):
+                if not hasattr(self, "_contained_non_execution_slots"):
+                    self._contained_non_execution_slots = set()
+                self._contained_non_execution_slots.add(slot.slot_id)
+                print(
+                    f"[BUY TRACE] stage=NON_EXECUTION_FACT_CONTAINED | "
+                    f"symbol={slot.pair} | slot_id={slot.slot_id} | no_effect=True"
+                )
+                return
+
             if not result:
                 print(f"[SLOT {slot.slot_id}] BUY FALHOU NA EXECUÇÃO: {slot.pair}")
                 print(
@@ -2675,30 +2692,15 @@ class SlotController:
             self._unblock_rejected_symbol(slot.pair)
 
         except Exception as e:
+            if not hasattr(self, "_contained_non_execution_slots"):
+                self._contained_non_execution_slots = set()
+            self._contained_non_execution_slots.add(slot.slot_id)
             print(f"[SLOT {slot.slot_id}] BUY ERROR: {e}")
-            if not executor_called:
-                print(
-                    f"[BUY TRACE] stage=EXECUTE_BUY_BLOCKED | "
-                    f"symbol={getattr(slot, 'pair', None) or 'UNKNOWN'} | "
-                    f"slot_id={slot.slot_id} | gate=PRE_EXECUTOR_EXCEPTION | "
-                    f"reason={e} | no_effect=True"
-                )
-            elif not executor_accepted:
-                print(
-                    f"[BUY TRACE] stage=EXECUTOR_REJECTED | "
-                    f"symbol={getattr(slot, 'pair', None) or 'UNKNOWN'} | "
-                    f"slot_id={slot.slot_id} | reason={e} | no_effect=True"
-                )
-
-            if slot.pair:
-                self._cleanup_failed_buy(
-                    slot=slot,
-                    symbol=slot.pair,
-                    rejection_cycles=3,
-                )
-            else:
-                slot.pending_buy_signal = None
-                slot.reset()
+            print(
+                f"[BUY TRACE] stage=NON_EXECUTION_EXCEPTION_CONTAINED | "
+                f"symbol={getattr(slot, 'pair', None) or 'UNKNOWN'} | "
+                f"slot_id={slot.slot_id} | no_effect=True"
+            )
 
     # ========================================================
     # EXECUÇÃO SELL
@@ -2730,6 +2732,16 @@ class SlotController:
                 print(
                     f"[SELL TRACE] stage=EXECUTION_FACT_CONTAINED | symbol={slot.pair} | "
                     f"slot_id={slot.slot_id} | no_effect=True"
+                )
+                return
+
+            if not isinstance(result, ExecutionFact):
+                if not hasattr(self, "_contained_non_execution_slots"):
+                    self._contained_non_execution_slots = set()
+                self._contained_non_execution_slots.add(slot.slot_id)
+                print(
+                    f"[SELL TRACE] stage=NON_EXECUTION_FACT_CONTAINED | "
+                    f"symbol={slot.pair} | slot_id={slot.slot_id} | no_effect=True"
                 )
                 return
 

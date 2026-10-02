@@ -42,8 +42,7 @@ def sync_positions_with_binance(client, slot_controller, position_manager):
     try:
         account = client.get_account()
         balances = account.get("balances", [])
-        slots = list(slot_controller.get_slots().values())
-        slot_index = 0
+        observations = []
 
         for balance in balances:
             asset = balance.get("asset")
@@ -63,37 +62,24 @@ def sync_positions_with_binance(client, slot_controller, position_manager):
             except Exception:
                 continue
 
-            if slot_index >= len(slots):
-                break
-
-            slot = slots[slot_index]
-            slot_index += 1
-
-            try:
-                position_manager.open_position(
-                    symbol=symbol,
-                    entry_price=current_price,
-                    quantity=free_amount,
-                )
-
-                slot.pair = symbol
-                slot.entry_price = current_price
-                slot.quantity = free_amount
-                slot._state = "RUNNING"
-
-                print(
-                    f"[SYNC] slot={slot.slot_id} | "
-                    f"pair={symbol} | qty={free_amount:.8f} | "
-                    f"entry~={current_price:.8f}"
-                )
-
-            except Exception as e:
-                print(f"[SYNC] erro ao registrar posição {symbol}: {e}")
+            observation = {
+                "symbol": symbol,
+                "quantity": free_amount,
+                "market_price": current_price,
+            }
+            observations.append(observation)
+            print(
+                f"[SYNC OBSERVATION] pair={symbol} | "
+                f"qty={free_amount:.8f} | price~={current_price:.8f} | "
+                "no_effect=True"
+            )
 
         print("\n[SYNC] concluído.\n")
+        return observations
 
     except Exception as e:
         print(f"[SYNC] erro geral: {e}")
+        return []
 
 
 # ============================================================

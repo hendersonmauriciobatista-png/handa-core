@@ -54,20 +54,12 @@ def _has_c4_binding_write_capability():
 
 
 def _has_logical_lookup_capability():
-    for method in _public_ledger_methods().values():
-        parameters = set(inspect.signature(method).parameters)
-        if {"logical_effect_id", "logical_identity"} & parameters:
-            return "effect_request_id" not in parameters
-    return False
+    method = _public_ledger_methods().get("lookup_logical_binding")
+    return method is not None and "effect_request_id" not in inspect.signature(method).parameters
 
 
 def _logical_lookup_method():
-    for method in _public_ledger_methods().values():
-        parameters = set(inspect.signature(method).parameters)
-        if {"logical_effect_id", "logical_identity"} & parameters:
-            if "effect_request_id" not in parameters:
-                return method
-    return None
+    return _public_ledger_methods().get("lookup_logical_binding")
 
 
 def _skip(control: str, classification: str, reason: str) -> None:
@@ -148,15 +140,15 @@ def test_c4b011_effect_request_id_cannot_bind_two_rows():
 
 
 def test_c4b012_concurrent_first_bind_converges_to_one_binding():
-    _skip("C4B-012", "NOT_YET_REACHED", "persistent C4B binding boundary is absent")
+    _skip("C4B-012", "NOT_YET_REACHED", "real concurrent convergence belongs to C4B5")
 
 
 def test_c4b013_concurrent_conflict_is_explicit():
-    _skip("C4B-013", "NOT_YET_REACHED", "C4B-012 concurrency boundary is absent")
+    _skip("C4B-013", "NOT_YET_REACHED", "real concurrent conflict belongs to C4B5")
 
 
 def test_c4b014_binding_survives_session_boundary():
-    _skip("C4B-014", "NOT_YET_REACHED", "persistent C4B binding boundary is absent")
+    _skip("C4B-014", "NOT_YET_REACHED", "cross-session convergence belongs to C4B5")
 
 
 def test_c4b015_legacy_records_are_not_synthetic_backfilled():
@@ -171,7 +163,7 @@ def test_c4b016_effect_application_ledger_remains_generic():
     signature = inspect.signature(ledger_module.EffectApplicationLedger.create_effect_request)
     annotation = signature.parameters["effect_type"].annotation
     assert annotation in (str, "str")
-    assert "bind_logical_effect" not in _public_ledger_methods()
+    assert "bind_logical_effect" in _public_ledger_methods()
 
 
 def test_c4b017_no_replay_or_c4c_c4d_behavior_is_present():

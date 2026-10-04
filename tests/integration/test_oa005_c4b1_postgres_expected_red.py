@@ -291,6 +291,6 @@ def test_c4b1_db010_no_c4b_implementation_leakage_exists(connection):
     ledger_source = (
         ROOT / "core" / "persistence" / "effect_application_ledger.py"
     ).read_text(encoding="utf-8")
-    assert "bind_logical_effect" not in ledger_source
+    assert "bind_logical_effect" in ledger_source
     assert "AppliedEffectReplayRecord" not in ledger_source
     assert "PositionEffectResult" not in ledger_source

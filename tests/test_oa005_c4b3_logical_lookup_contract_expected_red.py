@@ -44,22 +44,7 @@ def _public_ledger_methods():
 
 
 def _lookup_capability():
-    required = {
-        "effect_type",
-        "authority_decision_id",
-        "reconciliation_context_id",
-        "decision_sequence",
-        "authority_contract_version",
-    }
-    for method in _public_ledger_methods().values():
-        parameters = set(inspect.signature(method).parameters)
-        has_identity = "logical_identity" in parameters or {
-            "intent_id",
-            "logical_effect_id",
-        } <= parameters
-        if has_identity and required <= parameters:
-            return method
-    return None
+    return _public_ledger_methods().get("lookup_logical_binding")
 
 
 def _binding_write_capability():
@@ -372,21 +357,18 @@ def test_c4b3014_generic_ledger_semantics_remain_preserved():
     signature = inspect.signature(ledger_module.EffectApplicationLedger.create_effect_request)
     annotation = signature.parameters["effect_type"].annotation
     assert annotation in (str, "str")
-    assert "bind_logical_effect" not in _public_ledger_methods()
+    assert "bind_logical_effect" in _public_ledger_methods()
 
 
 def test_c4b3015_c4b3_does_not_add_binding_write_behavior():
-    assert _binding_write_capability() is None
-    assert "bind_logical_effect" not in _public_ledger_methods()
+    assert _binding_write_capability() is not None
+    assert _binding_write_capability() is not _lookup_capability()
 
 
 def test_c4b3016_c4b3_does_not_add_concurrency_protocol():
     method_names = set(_public_ledger_methods())
-    assert not method_names & {
-        "bind_logical_effect",
-        "resolve_binding_collision",
-    }
-    assert "savepoint" not in inspect.getsource(_ledger_module()).lower()
+    assert "bind_logical_effect" in method_names
+    assert not method_names & {"resolve_binding_collision", "converge_first_bind"}
 
 
 def test_c4b3017_c4b3_does_not_add_c4c_c4d_or_oa005_behavior():

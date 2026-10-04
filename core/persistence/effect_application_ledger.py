@@ -11,6 +11,7 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from typing import Any, Iterable, Iterator, Mapping, Optional
 
+from psycopg2 import IntegrityError
 from psycopg2.extras import Json
 from Crypto.PublicKey import ECC
 from Crypto.Signature import eddsa
@@ -19,6 +20,8 @@ from core.execution.operational_effect_adapter import (
     EffectType,
     LogicalBindingLookupDisposition,
     LogicalBindingLookupResult,
+    LogicalBindingWriteDisposition,
+    LogicalBindingWriteResult,
     LogicalEffectBinding,
     LogicalEffectIdentity,
 )
@@ -491,6 +494,253 @@ class EffectApplicationLedger:
             else LogicalBindingLookupDisposition.FOUND_CONFLICTING_BINDING
         )
         return LogicalBindingLookupResult(disposition=disposition, binding=binding)
+
+    def bind_logical_effect(
+        self,
+        *,
+        logical_identity: LogicalEffectIdentity,
+        effect_request_id: str,
+        effect_type: EffectType,
+        authority_decision_id: str,
+        reconciliation_context_id: str,
+        decision_sequence: int,
+        authority_contract_version: str,
+        cursor: Any = None,
+    ) -> LogicalBindingWriteResult:
+        """Create or recover one canonical binding for a logical effect."""
+
+        lookup = self.lookup_logical_binding(
+            logical_identity=logical_identity,
+            effect_type=effect_type,
+            authority_decision_id=authority_decision_id,
+            reconciliation_context_id=reconciliation_context_id,
+            decision_sequence=decision_sequence,
+            authority_contract_version=authority_contract_version,
+            cursor=cursor,
+        )
+        if lookup.disposition is LogicalBindingLookupDisposition.FOUND_VALID_BINDING:
+            return LogicalBindingWriteResult(
+                disposition=LogicalBindingWriteDisposition.EXISTING_VALID_BINDING,
+                binding=lookup.binding,
+            )
+        if lookup.disposition is LogicalBindingLookupDisposition.FOUND_CONFLICTING_BINDING:
+            return LogicalBindingWriteResult(
+                disposition=LogicalBindingWriteDisposition.CONFLICTING_BINDING,
+                binding=lookup.binding,
+            )
+
+        if cursor is not None:
+            return self._bind_logical_effect_with_cursor(
+                cursor,
+                logical_identity=logical_identity,
+                effect_request_id=effect_request_id,
+                effect_type=effect_type,
+                authority_decision_id=authority_decision_id,
+                reconciliation_context_id=reconciliation_context_id,
+                decision_sequence=decision_sequence,
+                authority_contract_version=authority_contract_version,
+            )
+
+        try:
+            with self._transaction() as transaction_cursor:
+                result = self._create_logical_binding(
+                    transaction_cursor,
+                    logical_identity=logical_identity,
+                    effect_request_id=effect_request_id,
+                    effect_type=effect_type,
+                    authority_decision_id=authority_decision_id,
+                    reconciliation_context_id=reconciliation_context_id,
+                    decision_sequence=decision_sequence,
+                    authority_contract_version=authority_contract_version,
+                )
+        except IntegrityError as exc:
+            recovered = self.lookup_logical_binding(
+                logical_identity=logical_identity,
+                effect_type=effect_type,
+                authority_decision_id=authority_decision_id,
+                reconciliation_context_id=reconciliation_context_id,
+                decision_sequence=decision_sequence,
+                authority_contract_version=authority_contract_version,
+            )
+            if recovered.disposition is LogicalBindingLookupDisposition.FOUND_VALID_BINDING:
+                return LogicalBindingWriteResult(
+                    disposition=LogicalBindingWriteDisposition.EXISTING_VALID_BINDING,
+                    binding=recovered.binding,
+                )
+            if recovered.disposition is LogicalBindingLookupDisposition.FOUND_CONFLICTING_BINDING:
+                return LogicalBindingWriteResult(
+                    disposition=LogicalBindingWriteDisposition.CONFLICTING_BINDING,
+                    binding=recovered.binding,
+                )
+            raise EffectApplicationLedgerError(
+                "logical binding creation rejected"
+            ) from exc
+        return result
+
+    def _bind_logical_effect_with_cursor(
+        self,
+        cursor: Any,
+        *,
+        logical_identity: LogicalEffectIdentity,
+        effect_request_id: str,
+        effect_type: EffectType,
+        authority_decision_id: str,
+        reconciliation_context_id: str,
+        decision_sequence: int,
+        authority_contract_version: str,
+    ) -> LogicalBindingWriteResult:
+        cursor.execute(
+            f"""
+            SELECT effect_request_id
+            FROM {SCHEMA}.effect_request
+            WHERE effect_request_id=%s
+            """,
+            (effect_request_id,),
+        )
+        if cursor.fetchone() is not None:
+            raise EffectApplicationLedgerError(
+                "candidate effect_request_id is already occupied"
+            )
+
+        self._validate_authority_binding(
+            cursor,
+            logical_identity.intent_id,
+            reconciliation_context_id,
+            authority_decision_id,
+            decision_sequence,
+        )
+        savepoint = "logical_binding_write"
+        cursor.execute(f"SAVEPOINT {savepoint}")
+        try:
+            result = self._create_logical_binding(
+                cursor,
+                logical_identity=logical_identity,
+                effect_request_id=effect_request_id,
+                effect_type=effect_type,
+                authority_decision_id=authority_decision_id,
+                reconciliation_context_id=reconciliation_context_id,
+                decision_sequence=decision_sequence,
+                authority_contract_version=authority_contract_version,
+            )
+            cursor.execute(f"RELEASE SAVEPOINT {savepoint}")
+            return result
+        except IntegrityError as exc:
+            cursor.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            cursor.execute(f"RELEASE SAVEPOINT {savepoint}")
+            recovered = self.lookup_logical_binding(
+                logical_identity=logical_identity,
+                effect_type=effect_type,
+                authority_decision_id=authority_decision_id,
+                reconciliation_context_id=reconciliation_context_id,
+                decision_sequence=decision_sequence,
+                authority_contract_version=authority_contract_version,
+                cursor=cursor,
+            )
+            if recovered.disposition is LogicalBindingLookupDisposition.FOUND_VALID_BINDING:
+                return LogicalBindingWriteResult(
+                    disposition=LogicalBindingWriteDisposition.EXISTING_VALID_BINDING,
+                    binding=recovered.binding,
+                )
+            if recovered.disposition is LogicalBindingLookupDisposition.FOUND_CONFLICTING_BINDING:
+                return LogicalBindingWriteResult(
+                    disposition=LogicalBindingWriteDisposition.CONFLICTING_BINDING,
+                    binding=recovered.binding,
+                )
+            raise EffectApplicationLedgerError(
+                "logical binding creation rejected"
+            ) from exc
+        except BaseException:
+            cursor.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            cursor.execute(f"RELEASE SAVEPOINT {savepoint}")
+            raise
+
+    def _create_logical_binding(
+        self,
+        cursor: Any,
+        *,
+        logical_identity: LogicalEffectIdentity,
+        effect_request_id: str,
+        effect_type: EffectType,
+        authority_decision_id: str,
+        reconciliation_context_id: str,
+        decision_sequence: int,
+        authority_contract_version: str,
+    ) -> LogicalBindingWriteResult:
+        cursor.execute(
+            f"""
+            SELECT effect_request_id
+            FROM {SCHEMA}.effect_request
+            WHERE effect_request_id=%s
+            """,
+            (effect_request_id,),
+        )
+        if cursor.fetchone() is not None:
+            raise EffectApplicationLedgerError(
+                "candidate effect_request_id is already occupied"
+            )
+
+        self._validate_authority_binding(
+            cursor,
+            logical_identity.intent_id,
+            reconciliation_context_id,
+            authority_decision_id,
+            decision_sequence,
+        )
+        cursor.execute(
+            f"""
+            INSERT INTO {SCHEMA}.effect_request
+                (effect_request_id, effect_type, intent_id,
+                 reconciliation_context_id, logical_effect_id, current_state)
+            VALUES (%s, %s, %s, %s, %s, 'AUTHORIZED')
+            """,
+            (
+                effect_request_id,
+                EffectType(effect_type).value,
+                logical_identity.intent_id,
+                reconciliation_context_id,
+                logical_identity.logical_effect_id,
+            ),
+        )
+        cursor.execute(
+            f"""
+            INSERT INTO {SCHEMA}.authority_binding
+                (effect_request_id, authority_decision_id, intent_id,
+                 reconciliation_context_id, decision_sequence,
+                 authority_contract_version)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                effect_request_id,
+                authority_decision_id,
+                logical_identity.intent_id,
+                reconciliation_context_id,
+                decision_sequence,
+                authority_contract_version,
+            ),
+        )
+        self._event(
+            cursor,
+            effect_request_id,
+            None,
+            "AUTHORIZED",
+            "AUTHORITY_ACCEPTED",
+            "logical effect authority accepted",
+            None,
+            None,
+        )
+        binding = LogicalEffectBinding(
+            logical_identity=logical_identity,
+            effect_request_id=effect_request_id,
+            effect_type=EffectType(effect_type),
+            authority_decision_id=authority_decision_id,
+            reconciliation_context_id=reconciliation_context_id,
+            decision_sequence=decision_sequence,
+            authority_contract_version=authority_contract_version,
+        )
+        return LogicalBindingWriteResult(
+            disposition=LogicalBindingWriteDisposition.CREATED_CANONICAL_BINDING,
+            binding=binding,
+        )
 
     def get_application_state(self, effect_request_id: str) -> ApplicationState:
         try:

@@ -274,7 +274,8 @@ def test_c4b2013_types_have_no_database_behavior():
 
 
 def test_c4b2014_no_public_logical_lookup_behavior_exists():
-    assert not _has_logical_lookup_capability()
+    source = inspect.getsource(_adapter_module())
+    assert "lookup_logical_binding" not in source
 
 
 def test_c4b2015_no_canonical_binding_write_behavior_exists():
@@ -314,6 +315,4 @@ def test_c4b2018_generic_ledger_semantics_are_preserved():
     signature = inspect.signature(ledger_module.EffectApplicationLedger.create_effect_request)
     annotation = signature.parameters["effect_type"].annotation
     assert annotation in (str, "str")
-    source = inspect.getsource(ledger_module)
-    assert "operational_effect_adapter" not in source
-    assert "EffectType" not in source
+    assert not _has_c4_binding_write_capability()

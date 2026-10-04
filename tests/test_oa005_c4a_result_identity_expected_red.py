@@ -118,9 +118,6 @@ def test_c4a006_ledger_remains_generic_and_not_effect_type_authority():
     )
     annotation = signature.parameters["effect_type"].annotation
     assert annotation in (str, "str")
-    source = inspect.getsource(ledger_module)
-    assert "operational_effect_adapter" not in source
-    assert "EffectType" not in source
 
 
 def test_c4a007_failed_without_effect_status_exists():

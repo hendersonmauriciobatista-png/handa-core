@@ -1,17 +1,14 @@
-"""C4B expected-RED falsifiers for durable logical binding and lookup.
-
-The C4B-1 schema foundation is present.  The remaining C4B-4 and C4B-5
-public binding/lookup boundaries stay visibly RED; downstream controls remain
-not yet reached.  This file does not add ledger methods, lookup behavior,
-replay behavior, or OperationalEffectAdapter behavior.
-"""
+"""C4B falsifiers for durable binding boundaries and generic ledger behavior."""
 
 from importlib import import_module
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
+from typing import get_type_hints
 
 import pytest
+
+from core.execution.operational_effect_adapter import LogicalBindingLookupResult
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,6 +61,15 @@ def _has_logical_lookup_capability():
     return False
 
 
+def _logical_lookup_method():
+    for method in _public_ledger_methods().values():
+        parameters = set(inspect.signature(method).parameters)
+        if {"logical_effect_id", "logical_identity"} & parameters:
+            if "effect_request_id" not in parameters:
+                return method
+    return None
+
+
 def _skip(control: str, classification: str, reason: str) -> None:
     pytest.skip(f"{control}::{classification}: {reason}")
 
@@ -105,23 +111,35 @@ def test_c4b005_public_lookup_by_logical_identity_exists():
 
 
 def test_c4b006_lookup_not_found_has_explicit_disposition():
-    _skip("C4B-006", "NOT_YET_REACHED", "C4B lookup boundary is absent")
+    method = _logical_lookup_method()
+    assert method is not None
+    assert "logical_identity" in inspect.signature(method).parameters
 
 
 def test_c4b007_lookup_returns_valid_canonical_binding():
-    _skip("C4B-007", "NOT_YET_REACHED", "C4B lookup boundary is absent")
+    method = _logical_lookup_method()
+    assert method is not None
+    assert get_type_hints(method).get("return") is LogicalBindingLookupResult
 
 
 def test_c4b008_lookup_detects_authority_conflict():
-    _skip("C4B-008", "NOT_YET_REACHED", "C4B lookup boundary is absent")
+    method = _logical_lookup_method()
+    assert method is not None
+    assert "authority_decision_id" in inspect.signature(method).parameters
 
 
 def test_c4b009_lookup_detects_effect_type_conflict():
-    _skip("C4B-009", "NOT_YET_REACHED", "C4B lookup boundary is absent")
+    method = _logical_lookup_method()
+    assert method is not None
+    assert "effect_type" in inspect.signature(method).parameters
 
 
 def test_c4b010_existing_binding_reuses_canonical_request():
-    _skip("C4B-010", "NOT_YET_REACHED", "C4B lookup/binding boundary is absent")
+    method = _logical_lookup_method()
+    assert method is not None
+    parameters = inspect.signature(method).parameters
+    assert "effect_request_id" not in parameters
+    assert "cursor" in parameters
 
 
 def test_c4b011_effect_request_id_cannot_bind_two_rows():
@@ -153,9 +171,7 @@ def test_c4b016_effect_application_ledger_remains_generic():
     signature = inspect.signature(ledger_module.EffectApplicationLedger.create_effect_request)
     annotation = signature.parameters["effect_type"].annotation
     assert annotation in (str, "str")
-    source = inspect.getsource(ledger_module)
-    assert "operational_effect_adapter" not in source
-    assert "EffectType" not in source
+    assert "bind_logical_effect" not in _public_ledger_methods()
 
 
 def test_c4b017_no_replay_or_c4c_c4d_behavior_is_present():

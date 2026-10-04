@@ -15,6 +15,14 @@ from psycopg2.extras import Json
 from Crypto.PublicKey import ECC
 from Crypto.Signature import eddsa
 
+from core.execution.operational_effect_adapter import (
+    EffectType,
+    LogicalBindingLookupDisposition,
+    LogicalBindingLookupResult,
+    LogicalEffectBinding,
+    LogicalEffectIdentity,
+)
+
 
 SCHEMA = "handa_live"
 CAPABILITY_FIELDS = {
@@ -384,6 +392,105 @@ class EffectApplicationLedger:
 
     def get_effect_request(self, effect_request_id: str) -> ApplicationState:
         return self.get_application_state(effect_request_id)
+
+    @contextmanager
+    def _read_cursor(self, cursor: Any = None) -> Iterator[Any]:
+        if cursor is not None:
+            with nullcontext(cursor) as read_cursor:
+                yield read_cursor
+            return
+        with self._connection.cursor() as read_cursor:
+            try:
+                yield read_cursor
+            finally:
+                self._connection.rollback()
+
+    def lookup_logical_binding(
+        self,
+        *,
+        logical_identity: LogicalEffectIdentity,
+        effect_type: EffectType,
+        authority_decision_id: str,
+        reconciliation_context_id: str,
+        decision_sequence: int,
+        authority_contract_version: str,
+        cursor: Any = None,
+    ) -> LogicalBindingLookupResult:
+        """Read the canonical binding evidence for one logical effect."""
+
+        with self._read_cursor(cursor) as read_cursor:
+            read_cursor.execute(
+                f"""
+                SELECT er.effect_request_id,
+                       er.intent_id,
+                       er.logical_effect_id,
+                       er.effect_type,
+                       er.reconciliation_context_id,
+                       ab.authority_decision_id,
+                       ab.intent_id,
+                       ab.reconciliation_context_id,
+                       ab.decision_sequence,
+                       ab.authority_contract_version
+                FROM {SCHEMA}.effect_request er
+                LEFT JOIN {SCHEMA}.authority_binding ab
+                  ON ab.effect_request_id = er.effect_request_id
+                WHERE er.intent_id=%s
+                  AND er.logical_effect_id=%s
+                """,
+                (
+                    logical_identity.intent_id,
+                    logical_identity.logical_effect_id,
+                ),
+            )
+            row = read_cursor.fetchone()
+
+        if row is None:
+            return LogicalBindingLookupResult(
+                disposition=LogicalBindingLookupDisposition.NOT_FOUND,
+                binding=None,
+            )
+
+        if row[5] is None:
+            raise EffectApplicationLedgerError(
+                "authority binding is missing for logical effect"
+            )
+
+        if row[1] != row[6] or row[4] != row[7]:
+            raise EffectApplicationLedgerError(
+                "DURABLE_DATA_CONTRADICTION: duplicated logical binding fields disagree"
+            )
+
+        try:
+            stored_effect_type = EffectType(row[3])
+        except ValueError as exc:
+            raise EffectApplicationLedgerError(
+                "logical binding effect type is outside the governed vocabulary"
+            ) from exc
+
+        binding = LogicalEffectBinding(
+            logical_identity=LogicalEffectIdentity(row[1], row[2]),
+            effect_request_id=row[0],
+            effect_type=stored_effect_type,
+            authority_decision_id=row[5],
+            reconciliation_context_id=row[7],
+            decision_sequence=row[8],
+            authority_contract_version=row[9],
+        )
+        expected_effect_type = EffectType(effect_type)
+        matches = (
+            binding.logical_identity == logical_identity
+            and binding.effect_type is expected_effect_type
+            and binding.authority_decision_id == authority_decision_id
+            and binding.reconciliation_context_id == reconciliation_context_id
+            and binding.decision_sequence == decision_sequence
+            and binding.authority_contract_version == authority_contract_version
+        )
+        disposition = (
+            LogicalBindingLookupDisposition.FOUND_VALID_BINDING
+            if matches
+            else LogicalBindingLookupDisposition.FOUND_CONFLICTING_BINDING
+        )
+        return LogicalBindingLookupResult(disposition=disposition, binding=binding)
 
     def get_application_state(self, effect_request_id: str) -> ApplicationState:
         try:

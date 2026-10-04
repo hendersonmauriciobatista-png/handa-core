@@ -77,6 +77,52 @@ class LogicalEffectBinding:
     authority_contract_version: str
 
 
+class LogicalBindingLookupDisposition(str, Enum):
+    """Closed semantic vocabulary for read-only logical binding lookup."""
+
+    NOT_FOUND = "NOT_FOUND"
+    FOUND_VALID_BINDING = "FOUND_VALID_BINDING"
+    FOUND_CONFLICTING_BINDING = "FOUND_CONFLICTING_BINDING"
+
+
+class LogicalBindingWriteDisposition(str, Enum):
+    """Closed semantic vocabulary for future logical binding writes."""
+
+    CREATED_CANONICAL_BINDING = "CREATED_CANONICAL_BINDING"
+    EXISTING_VALID_BINDING = "EXISTING_VALID_BINDING"
+    CONFLICTING_BINDING = "CONFLICTING_BINDING"
+
+
+@dataclass(frozen=True, slots=True)
+class LogicalBindingLookupResult:
+    """Immutable lookup evidence without lookup or persistence behavior."""
+
+    disposition: LogicalBindingLookupDisposition
+    binding: Optional[LogicalEffectBinding] = None
+
+    def __post_init__(self) -> None:
+        disposition = LogicalBindingLookupDisposition(self.disposition)
+        if disposition is LogicalBindingLookupDisposition.NOT_FOUND:
+            if self.binding is not None:
+                raise ValueError("NOT_FOUND cannot carry a logical binding")
+            return
+        if self.binding is None:
+            raise ValueError("found logical binding disposition requires binding")
+
+
+@dataclass(frozen=True, slots=True)
+class LogicalBindingWriteResult:
+    """Immutable canonical-binding write evidence without write behavior."""
+
+    disposition: LogicalBindingWriteDisposition
+    binding: LogicalEffectBinding
+
+    def __post_init__(self) -> None:
+        LogicalBindingWriteDisposition(self.disposition)
+        if self.binding is None:
+            raise ValueError("logical binding write disposition requires binding")
+
+
 @dataclass(frozen=True, slots=True)
 class OperationalEffectRequest:
     """Immutable future adapter input; contains no effect authority itself."""
@@ -168,6 +214,10 @@ __all__ = [
     "EffectType",
     "LogicalEffectBinding",
     "LogicalEffectIdentity",
+    "LogicalBindingLookupDisposition",
+    "LogicalBindingLookupResult",
+    "LogicalBindingWriteDisposition",
+    "LogicalBindingWriteResult",
     "OperationalEffectAdapter",
     "OperationalEffectRequest",
     "OperationalEffectResult",

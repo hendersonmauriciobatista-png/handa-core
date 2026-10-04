@@ -107,10 +107,24 @@ class OperationalEffectResult:
 
 
 class OperationalEffectAdapter:
-    """Future orchestration boundary; operational behavior is not implemented."""
+    """Contain governed non-effect outcomes at the operational boundary."""
 
     def apply(self, request: OperationalEffectRequest) -> OperationalEffectResult:
-        del request
+        if request.semantic_decision.state in {"PENDING", "BLOCKED"}:
+            return OperationalEffectResult(
+                status=OperationalEffectStatus(request.semantic_decision.state),
+                reconciliation_context_id=request.reconciliation_context_id,
+                authority_decision_id=request.authority_decision_id,
+                evidence_ids=tuple(request.evidence_ids),
+            )
+        extent_certainty = getattr(request.execution_fact, "extent_certainty", None)
+        if getattr(extent_certainty, "value", extent_certainty) == "UNKNOWN":
+            return OperationalEffectResult(
+                status=OperationalEffectStatus.OUTCOME_UNKNOWN,
+                reconciliation_context_id=request.reconciliation_context_id,
+                authority_decision_id=request.authority_decision_id,
+                evidence_ids=tuple(request.evidence_ids),
+            )
         raise NotImplementedError(
             "operational effect application is not implemented"
         )

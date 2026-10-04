@@ -30,6 +30,7 @@ class OperationalEffectStatus(str, Enum):
     """Bounded outcomes exposed by the future adapter."""
 
     EFFECT_APPLIED = "EFFECT_APPLIED"
+    FAILED_WITHOUT_EFFECT = "FAILED_WITHOUT_EFFECT"
     CONTAINED = "CONTAINED"
     PENDING = "PENDING"
     BLOCKED = "BLOCKED"
@@ -61,6 +62,19 @@ class PositionBinding:
 
     position_id: Optional[str] = None
     position_creation_id: Optional[str] = None
+
+
+@dataclass(frozen=True, slots=True)
+class LogicalEffectBinding:
+    """Immutable caller-supplied binding for one governed logical effect."""
+
+    logical_identity: LogicalEffectIdentity
+    effect_request_id: str
+    effect_type: EffectType
+    authority_decision_id: str
+    reconciliation_context_id: str
+    decision_sequence: int
+    authority_contract_version: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +118,15 @@ class OperationalEffectResult:
             and self.effect_request_id is None
         ):
             raise ValueError("EFFECT_APPLIED requires effect_request_id")
+        if self.status is OperationalEffectStatus.FAILED_WITHOUT_EFFECT:
+            if self.effect_request_id is None:
+                raise ValueError(
+                    "FAILED_WITHOUT_EFFECT requires effect_request_id"
+                )
+            if self.position_effect_result is not None:
+                raise ValueError(
+                    "FAILED_WITHOUT_EFFECT cannot contain position_effect_result"
+                )
 
 
 class OperationalEffectAdapter:
@@ -143,6 +166,7 @@ class OperationalEffectAdapter:
 __all__ = [
     "EffectEligibility",
     "EffectType",
+    "LogicalEffectBinding",
     "LogicalEffectIdentity",
     "OperationalEffectAdapter",
     "OperationalEffectRequest",

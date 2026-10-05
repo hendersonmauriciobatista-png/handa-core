@@ -523,6 +523,13 @@ class PositionEffectAuthority:
 
     @staticmethod
     def _extent_identity(receipt: Mapping[str, Any]) -> str:
+        if "execution_extent_identity" in receipt:
+            canonical = receipt["execution_extent_identity"]
+            if not isinstance(canonical, str) or not canonical.strip():
+                raise PositionEffectError(
+                    "execution_extent_identity must be a non-empty string"
+                )
+            return canonical
         order_id = receipt.get("order_id")
         fills = receipt.get("fills", ())
         if not order_id or not isinstance(fills, (list, tuple)):

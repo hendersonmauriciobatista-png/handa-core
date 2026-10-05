@@ -7,6 +7,7 @@ does not perform reconciliation or operational effects.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional, TYPE_CHECKING
@@ -62,6 +63,31 @@ class PositionBinding:
 
     position_id: Optional[str] = None
     position_creation_id: Optional[str] = None
+
+
+@dataclass(frozen=True, slots=True)
+class OperationalApplicationBinding:
+    """Caller-supplied durable application envelope for an effect."""
+
+    effect_request_id: str
+    application_attempt_id: str
+    authority_contract_version: str
+    claimant_id: str
+    receipt: Mapping[str, Any]
+    intended_quantity: Optional[Any] = None
+
+    def __post_init__(self) -> None:
+        for name in (
+            "effect_request_id",
+            "application_attempt_id",
+            "authority_contract_version",
+            "claimant_id",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} is required")
+        if not isinstance(self.receipt, Mapping):
+            raise TypeError("receipt must be a mapping")
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +162,7 @@ class OperationalEffectRequest:
     effect_eligibility: EffectEligibility
     logical_effect_identity: LogicalEffectIdentity
     position_binding: PositionBinding
+    application_binding: Optional[OperationalApplicationBinding] = None
 
     def __post_init__(self) -> None:
         eligibility = self.effect_eligibility
@@ -176,7 +203,10 @@ class OperationalEffectResult:
 
 
 class OperationalEffectAdapter:
-    """Contain governed non-effect outcomes at the operational boundary."""
+    """Bridge applicable governed requests to an injected coordinator."""
+
+    def __init__(self, coordinator: Any = None) -> None:
+        self._coordinator = coordinator
 
     def apply(self, request: OperationalEffectRequest) -> OperationalEffectResult:
         if request.semantic_decision.state in {"PENDING", "BLOCKED"}:
@@ -186,16 +216,134 @@ class OperationalEffectAdapter:
                 authority_decision_id=request.authority_decision_id,
                 evidence_ids=tuple(request.evidence_ids),
             )
-        extent_certainty = getattr(request.execution_fact, "extent_certainty", None)
-        if getattr(extent_certainty, "value", extent_certainty) == "UNKNOWN":
+        if not hasattr(request.execution_fact, "execution_extent_identity") and not hasattr(
+            request.execution_fact, "extent_certainty"
+        ):
+            raise NotImplementedError(
+                "operational effect application is not implemented"
+            )
+        if not self._has_applicable_extent(request.execution_fact):
             return OperationalEffectResult(
                 status=OperationalEffectStatus.OUTCOME_UNKNOWN,
                 reconciliation_context_id=request.reconciliation_context_id,
                 authority_decision_id=request.authority_decision_id,
                 evidence_ids=tuple(request.evidence_ids),
             )
-        raise NotImplementedError(
-            "operational effect application is not implemented"
+        application = request.application_binding
+        if application is None:
+            return self._contained(request)
+        if not self._receipt_matches_fact(request.execution_fact, application.receipt):
+            return self._contained(request)
+        if self._coordinator is None:
+            raise NotImplementedError(
+                "operational effect application coordinator is not configured"
+            )
+
+        binding = LogicalEffectBinding(
+            logical_identity=request.logical_effect_identity,
+            effect_request_id=application.effect_request_id,
+            effect_type=request.effect_eligibility.effect_type,
+            authority_decision_id=request.authority_decision_id,
+            reconciliation_context_id=request.reconciliation_context_id,
+            decision_sequence=request.decision_sequence,
+            authority_contract_version=application.authority_contract_version,
+        )
+        position_id = (
+            request.position_binding.position_id
+            if request.effect_eligibility.effect_type is not EffectType.OPEN
+            else None
+        )
+        try:
+            outcome = self._coordinator.apply(
+                logical_binding=binding,
+                application_attempt_id=application.application_attempt_id,
+                claimant_id=application.claimant_id,
+                position_id=position_id,
+                position_binding=request.position_binding,
+                receipt=application.receipt,
+                applied_quantity=request.execution_fact.executed_base_qty,
+                intended_quantity=application.intended_quantity,
+                external_order_id=request.execution_fact.external_order_id,
+                symbol=request.execution_fact.symbol,
+                evidence_ids=tuple(request.evidence_ids),
+            )
+        except Exception:
+            return self._contained(request)
+        return self._translate_coordinator_result(request, application, outcome)
+
+    @staticmethod
+    def _has_applicable_extent(execution_fact: Any) -> bool:
+        extent = getattr(execution_fact, "execution_extent_identity", None)
+        certainty = getattr(execution_fact, "extent_certainty", None)
+        semantics = getattr(execution_fact, "quantity_semantics", None)
+        if not isinstance(extent, str) or not extent.strip():
+            return False
+        if getattr(certainty, "value", certainty) == "UNKNOWN":
+            return False
+        return getattr(semantics, "value", semantics) == "NON_OVERLAPPING_EXTENT"
+
+    @staticmethod
+    def _receipt_matches_fact(execution_fact: Any, receipt: Mapping[str, Any]) -> bool:
+        extent = receipt.get("execution_extent_identity")
+        if not isinstance(extent, str) or not extent.strip():
+            return False
+        if extent != execution_fact.execution_extent_identity:
+            return False
+        external_order_id = getattr(execution_fact, "external_order_id", None)
+        if receipt.get("order_id") is not None and external_order_id is not None:
+            if str(receipt["order_id"]) != str(external_order_id):
+                return False
+        if receipt.get("executed_base_qty") is not None:
+            if str(receipt["executed_base_qty"]) != str(
+                execution_fact.executed_base_qty
+            ):
+                return False
+        return True
+
+    @staticmethod
+    def _contained(request: OperationalEffectRequest) -> OperationalEffectResult:
+        return OperationalEffectResult(
+            status=OperationalEffectStatus.CONTAINED,
+            reconciliation_context_id=request.reconciliation_context_id,
+            authority_decision_id=request.authority_decision_id,
+            evidence_ids=tuple(request.evidence_ids),
+        )
+
+    @classmethod
+    def _translate_coordinator_result(
+        cls,
+        request: OperationalEffectRequest,
+        application: OperationalApplicationBinding,
+        outcome: Any,
+    ) -> OperationalEffectResult:
+        classification = getattr(outcome, "classification", None)
+        classification = getattr(classification, "value", classification)
+        if classification == "FAILED_WITHOUT_EFFECT":
+            return OperationalEffectResult(
+                status=OperationalEffectStatus.FAILED_WITHOUT_EFFECT,
+                effect_request_id=application.effect_request_id,
+                reconciliation_context_id=request.reconciliation_context_id,
+                authority_decision_id=request.authority_decision_id,
+                evidence_ids=tuple(request.evidence_ids),
+            )
+        if classification == "RECOVERY_REQUIRED":
+            return cls._contained(request)
+
+        position_result = getattr(outcome, "position_effect_result", None)
+        if position_result is None and all(
+            hasattr(outcome, field)
+            for field in ("effect_request_id", "effect_type", "execution_extent_identity")
+        ):
+            position_result = outcome
+        if position_result is None:
+            return cls._contained(request)
+        return OperationalEffectResult(
+            status=OperationalEffectStatus.EFFECT_APPLIED,
+            effect_request_id=application.effect_request_id,
+            position_effect_result=position_result,
+            reconciliation_context_id=request.reconciliation_context_id,
+            authority_decision_id=request.authority_decision_id,
+            evidence_ids=tuple(request.evidence_ids),
         )
 
 
@@ -212,6 +360,7 @@ class OperationalEffectAdapter:
 __all__ = [
     "EffectEligibility",
     "EffectType",
+    "OperationalApplicationBinding",
     "LogicalEffectBinding",
     "LogicalEffectIdentity",
     "LogicalBindingLookupDisposition",

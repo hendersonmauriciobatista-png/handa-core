@@ -313,6 +313,14 @@ class PositionEffectAuthority:
         metadata = self._persistent_metadata(cursor, effect_request_id, binding)
         receipt_id = self._persist_receipt(cursor, receipt, effect_request_id, extent)
         resulting = previous - applied
+        self._persist_event(
+            cursor, position_id=position_id, intent_id=intent_id,
+            effect_type="REDUCE", effect_request_id=effect_request_id,
+            application_attempt_id=metadata["application_attempt_id"],
+            receipt=receipt, receipt_id=receipt_id, extent=extent,
+            previous=previous, applied=applied, resulting=resulting,
+            metadata=metadata,
+        )
         cursor.execute(
             """
             UPDATE handa_live.position
@@ -321,14 +329,6 @@ class PositionEffectAuthority:
             WHERE position_id=%s
             """,
             (resulting, version + 1, position_id),
-        )
-        self._persist_event(
-            cursor, position_id=position_id, intent_id=intent_id,
-            effect_type="REDUCE", effect_request_id=effect_request_id,
-            application_attempt_id=metadata["application_attempt_id"],
-            receipt=receipt, receipt_id=receipt_id, extent=extent,
-            previous=previous, applied=applied, resulting=resulting,
-            metadata=metadata,
         )
         return PositionEffectResult(
             position_id, "REDUCE", previous, applied, resulting, state,
@@ -365,6 +365,14 @@ class PositionEffectAuthority:
         extent = self._extent_identity(receipt)
         metadata = self._persistent_metadata(cursor, effect_request_id, binding)
         receipt_id = self._persist_receipt(cursor, receipt, effect_request_id, extent)
+        self._persist_event(
+            cursor, position_id=position_id, intent_id=intent_id,
+            effect_type="CLOSE", effect_request_id=effect_request_id,
+            application_attempt_id=metadata["application_attempt_id"],
+            receipt=receipt, receipt_id=receipt_id, extent=extent,
+            previous=previous, applied=applied, resulting=Decimal("0"),
+            metadata=metadata,
+        )
         cursor.execute(
             """
             UPDATE handa_live.position
@@ -373,14 +381,6 @@ class PositionEffectAuthority:
             WHERE position_id=%s
             """,
             (version + 1, position_id),
-        )
-        self._persist_event(
-            cursor, position_id=position_id, intent_id=intent_id,
-            effect_type="CLOSE", effect_request_id=effect_request_id,
-            application_attempt_id=metadata["application_attempt_id"],
-            receipt=receipt, receipt_id=receipt_id, extent=extent,
-            previous=previous, applied=applied, resulting=Decimal("0"),
-            metadata=metadata,
         )
         return PositionEffectResult(
             position_id, "CLOSE", previous, applied, Decimal("0"), "CLOSED",

@@ -16,6 +16,7 @@ MIGRATIONS = ROOT / "core" / "persistence" / "migrations"
 EFFECT_LEDGER = ROOT / "core" / "persistence" / "effect_application_ledger.py"
 ADAPTER = ROOT / "core" / "execution" / "operational_effect_adapter.py"
 C4B1_MIGRATION = MIGRATIONS / "008_effect_request_logical_binding.sql"
+C4B5_TEST = ROOT / "tests" / "integration" / "test_oa005_c4b5_concurrent_binding_expected_red.py"
 
 
 def _migration_text() -> str:
@@ -60,6 +61,10 @@ def _has_logical_lookup_capability():
 
 def _logical_lookup_method():
     return _public_ledger_methods().get("lookup_logical_binding")
+
+
+def _c4b5_evidence_source() -> str:
+    return C4B5_TEST.read_text(encoding="utf-8")
 
 
 def _skip(control: str, classification: str, reason: str) -> None:
@@ -140,15 +145,27 @@ def test_c4b011_effect_request_id_cannot_bind_two_rows():
 
 
 def test_c4b012_concurrent_first_bind_converges_to_one_binding():
-    _skip("C4B-012", "NOT_YET_REACHED", "real concurrent convergence belongs to C4B5")
+    source = _c4b5_evidence_source()
+    assert "test_c4b5001_real_same_logical_convergence" in source
+    assert "pg_blocking_pids" in source
+    assert "CREATED_CANONICAL_BINDING" in source
+    assert "EXISTING_VALID_BINDING" in source
 
 
 def test_c4b013_concurrent_conflict_is_explicit():
-    _skip("C4B-013", "NOT_YET_REACHED", "real concurrent conflict belongs to C4B5")
+    source = _c4b5_evidence_source()
+    assert "test_c4b5006_caller_transaction_survives_handled_collision" in source
+    assert "test_c4b5007_concurrent_authority_conflict" in source
+    assert "test_c4b5009_winner_rollback_second_binder_succeeds" in source
+    assert "test_c4b5010_rolled_back_candidate_leaves_no_orphan" in source
 
 
 def test_c4b014_binding_survives_session_boundary():
-    _skip("C4B-014", "NOT_YET_REACHED", "cross-session convergence belongs to C4B5")
+    source = _c4b5_evidence_source()
+    assert "test_c4b5011_cross_session_commit_durability" in source
+    assert "test_c4b5012_cross_session_rebind_reuses_canonical" in source
+    assert "FOUND_VALID_BINDING" in source
+    assert "EXISTING_VALID_BINDING" in source
 
 
 def test_c4b015_legacy_records_are_not_synthetic_backfilled():

@@ -130,6 +130,9 @@ def run():
     decision_engine.set_position_manager(position_manager)
     position_manager.decision_engine = decision_engine
 
+    restart_reconciliation = slot_controller.reconcile_persisted_mock_state()
+    print(f"[HEADLESS] Reconciliação de restart: {restart_reconciliation}")
+
     print("[HEADLESS] SlotController conectado")
 
     # ========================================================

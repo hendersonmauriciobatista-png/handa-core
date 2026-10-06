@@ -6,6 +6,7 @@
 from types import SimpleNamespace
 import json
 import os
+import uuid
 from datetime import datetime
 from core.execution.execution_fact import normalize_external_execution
 
@@ -22,6 +23,8 @@ except Exception:
 
 
 class MockExecutor:
+    STATE_FORMAT_VERSION = 1
+
     """
     Executor MOCK compatível com múltiplos slots.
     Não envia ordens reais.
@@ -45,6 +48,9 @@ class MockExecutor:
         # valor inicial provisório
         self.balance_usdc = float(initial_balance)
         self.initial_balance = float(initial_balance)
+        self.state_format_version = None
+        self.state_classification = "NO_STATE"
+        self.state_diagnostics = []
 
         # =========================================
         # POSTGRES PERSISTENCE
@@ -138,11 +144,7 @@ class MockExecutor:
 
         quantity = allocated_usdc / entry_price
 
-        # debita saldo
-        self.balance_usdc -= allocated_usdc
-        self._save_state()
-
-        # registra posição local
+        # registra posição local antes de persistir o novo estado
         self.positions[pair] = {
             "pair": pair,
             "entry_price": entry_price,
@@ -150,7 +152,11 @@ class MockExecutor:
             "allocated_usdc": allocated_usdc,
             "stop_loss": stop_loss,
             "take_profit": take_profit,
+            "position_id": str(uuid.uuid4()),
+            "opened_at": datetime.utcnow().isoformat(),
         }
+        self.balance_usdc -= allocated_usdc
+        self._save_state()
 
         if self.live_shadow:
             try:
@@ -209,11 +215,16 @@ class MockExecutor:
             except Exception as e:
                 print(f"[SHADOW SELL ERROR] {e}")
 
-        # devolve saldo
+        # devolve saldo e remove a posição antes de persistir o estado final
+        previous_balance = self.balance_usdc
+        previous_position = dict(pos)
         self.balance_usdc += usdc_received
-        self._save_state()
-
         del self.positions[pair]
+
+        if not self._save_state():
+            self.balance_usdc = previous_balance
+            self.positions[pair] = previous_position
+            raise RuntimeError("MockExecutor: falha ao persistir SELL")
 
         return normalize_external_execution(
             {
@@ -230,19 +241,64 @@ class MockExecutor:
     # =================================================
     # STATE PERSISTENCE
     # =================================================
+    def _apply_loaded_state(self, data):
+        if not isinstance(data, dict):
+            raise ValueError("mock state must be an object")
+
+        positions = data.get("positions", {}) or {}
+        if not isinstance(positions, dict):
+            raise ValueError("mock state positions must be an object")
+
+        self.balance_usdc = float(data.get("current_balance", self.balance_usdc))
+        self.initial_balance = float(data.get("initial_balance", self.initial_balance))
+
+        normalized_positions = {}
+        for key, value in positions.items():
+            if not isinstance(value, dict):
+                raise ValueError("mock state position must be an object")
+            pair = str(value.get("pair", key)).strip().upper()
+            if not pair:
+                raise ValueError("mock state position pair is required")
+            record = dict(value)
+            record["pair"] = pair
+            normalized_positions[pair] = record
+
+        version = data.get("state_format_version")
+        if version is None:
+            self.state_format_version = None
+            self.state_classification = "LEGACY_UNVERSIONED_RECORD"
+        elif version != self.STATE_FORMAT_VERSION:
+            raise ValueError(f"unsupported mock state version: {version!r}")
+        else:
+            required_fields = {
+                "pair",
+                "entry_price",
+                "quantity",
+                "allocated_usdc",
+                "stop_loss",
+                "take_profit",
+                "position_id",
+                "opened_at",
+            }
+            for record in normalized_positions.values():
+                missing = sorted(required_fields.difference(record))
+                if missing:
+                    raise ValueError(
+                        "versioned mock position missing fields: " + ", ".join(missing)
+                    )
+                datetime.fromisoformat(str(record["opened_at"]).replace("Z", "+00:00"))
+            self.state_format_version = self.STATE_FORMAT_VERSION
+            self.state_classification = "CURRENT_VERSIONED_RECORD"
+
+        self.positions = normalized_positions
+
     def _load_state(self):
         try:
             if self.state_repo is not None:
                 data = self.state_repo.load_system_state("mock_executor_state")
 
                 if data:
-                    self.balance_usdc = float(
-                        data.get("current_balance", self.balance_usdc)
-                    )
-                    self.initial_balance = float(
-                        data.get("initial_balance", self.initial_balance)
-                    )
-                    self.positions = data.get("positions", {}) or {}
+                    self._apply_loaded_state(data)
 
                     print(
                         f"[MOCK STATE DB] carregado | balance={self.balance_usdc:.4f}"
@@ -257,12 +313,7 @@ class MockExecutor:
                 with open(self.state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                self.balance_usdc = float(
-                    data.get("current_balance", self.balance_usdc)
-                )
-                self.initial_balance = float(
-                    data.get("initial_balance", self.initial_balance)
-                )
+                self._apply_loaded_state(data)
 
                 print(f"[MOCK STATE JSON] carregado | balance={self.balance_usdc:.4f}")
                 return True
@@ -271,6 +322,9 @@ class MockExecutor:
             return False
 
         except Exception as e:
+            self.positions = {}
+            self.state_classification = "MALFORMED_RECORD"
+            self.state_diagnostics = [str(e)]
             print(f"[MOCK STATE ERROR - LOAD] {e}")
             return False
 
@@ -284,6 +338,7 @@ class MockExecutor:
             )
 
             data = {
+                "state_format_version": self.STATE_FORMAT_VERSION,
                 "initial_balance": self.initial_balance,
                 "current_balance": self.balance_usdc,
                 "positions": self.positions,
@@ -295,17 +350,23 @@ class MockExecutor:
             if self.state_repo is not None:
                 self.state_repo.save_system_state("mock_executor_state", data)
                 print(f"[MOCK STATE DB] salvo | balance={self.balance_usdc:.4f}")
-                return
+                return True
 
             os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
 
-            with open(self.state_file, "w", encoding="utf-8") as f:
+            temp_state_file = f"{self.state_file}.tmp"
+            with open(temp_state_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_state_file, self.state_file)
 
             print(f"[MOCK STATE JSON] salvo | balance={self.balance_usdc:.4f}")
+            return True
 
         except Exception as e:
             print(f"[MOCK STATE ERROR - SAVE] {e}")
+            return False
 
     # =================================================
     # HARD BLOCKS

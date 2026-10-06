@@ -9,7 +9,7 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from core.notifications.telegram_notifier import TelegramNotifier
 from enum import Enum
 from typing import Optional, Dict, List
@@ -863,6 +863,85 @@ class PositionManager:
             logger.warning("[TELEGRAM] Falha ao enviar notificação: %s", e)
 
         return pos
+
+    # ========================================================
+    # SIDE-EFFECT-FREE RESTART HYDRATION
+    # ========================================================
+    def hydrate_position(self, record):
+        """Restore one persisted position without opening a new position."""
+        if not isinstance(record, dict):
+            raise ValueError("persisted position must be an object")
+
+        required = {
+            "pair",
+            "entry_price",
+            "quantity",
+            "allocated_usdc",
+            "stop_loss",
+            "take_profit",
+            "position_id",
+            "opened_at",
+        }
+        missing = sorted(required.difference(record))
+        if missing:
+            raise ValueError(
+                "persisted position missing fields: " + ", ".join(missing)
+            )
+
+        symbol_name = self._normalize_symbol(symbol=record["pair"])
+        position_id = str(record["position_id"]).strip()
+        if not symbol_name or not position_id:
+            raise ValueError("persisted position identity is invalid")
+
+        opened_at = datetime.fromisoformat(
+            str(record["opened_at"]).replace("Z", "+00:00")
+        )
+        if opened_at.tzinfo is not None:
+            opened_at = opened_at.astimezone(timezone.utc).replace(tzinfo=None)
+
+        values = {
+            "entry_price": float(record["entry_price"]),
+            "quantity": float(record["quantity"]),
+            "capital_invested": float(record["allocated_usdc"]),
+            "stop_loss": float(record["stop_loss"]),
+            "take_profit": float(record["take_profit"]),
+        }
+        if values["entry_price"] <= 0 or values["quantity"] <= 0:
+            raise ValueError("persisted position values are invalid")
+
+        existing = self._positions.get(symbol_name)
+        if existing is not None:
+            if (
+                existing.id != position_id
+                or existing.entry_price != values["entry_price"]
+                or existing.quantity != values["quantity"]
+                or existing.opened_at != opened_at
+            ):
+                raise ValueError("persisted position conflicts with runtime position")
+            return existing
+
+        position = Position(
+            id=position_id,
+            pair=symbol_name,
+            symbol=symbol_name,
+            entry_price=values["entry_price"],
+            stop_loss=values["stop_loss"],
+            take_profit=values["take_profit"],
+            peak_price=float(record.get("peak_price", values["entry_price"])),
+            trailing_stop_price=float(record.get("trailing_stop_price", 0.0)),
+            trailing_active=bool(record.get("trailing_active", False)),
+            capital_invested=values["capital_invested"],
+            quantity=values["quantity"],
+            fees_paid=float(record.get("fees_paid", 0.0)),
+            opened_at=opened_at,
+            cycles_in_trade=int(record.get("cycles_in_trade", 0)),
+            peak_pnl_pct=float(record.get("peak_pnl_pct", 0.0)),
+            is_premium_override=bool(record.get("is_premium_override", False)),
+            entry_source=str(record.get("entry_source", "RESTART_RECONSTRUCTION")),
+        )
+        self._positions[symbol_name] = position
+        self.last_traded_symbol = symbol_name
+        return position
 
     # ========================================================
     # GETTERS

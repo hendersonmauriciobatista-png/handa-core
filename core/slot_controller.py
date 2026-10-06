@@ -77,6 +77,11 @@ class SlotController:
         self.trade_history = []
         self._contained_execution_facts = {}
         self._contained_non_execution_slots = set()
+        self._restart_reconciliation_status = "NOT_RUN"
+        self._restart_capacity_reservations = {}
+        self._restart_contained_symbols = set()
+        self._restart_diagnostics = []
+        self._restart_entries_blocked = False
 
         # SLOTS
         self._slots = {slot_id: Slot(slot_id) for slot_id in slot_ids}
@@ -144,7 +149,83 @@ class SlotController:
     # ========================================================
 
     def get_active_positions(self):
-        return sum(1 for slot in self._slots.values() if slot.state == "RUNNING")
+        running_slots = sum(
+            1 for slot in self._slots.values() if slot.state == "RUNNING"
+        )
+        return running_slots + len(self._restart_capacity_reservations)
+
+    def reconcile_persisted_mock_state(self):
+        """Rebuild runtime state from MOCK evidence without opening positions."""
+        if self._restart_reconciliation_status != "NOT_RUN":
+            return self.get_restart_reconciliation()
+
+        self._restart_reconciliation_status = "RUNNING"
+        classification = getattr(self.executor, "state_classification", "NO_STATE")
+        positions = getattr(self.executor, "positions", {}) or {}
+
+        if classification == "MALFORMED_RECORD":
+            self._restart_entries_blocked = True
+            self._restart_reconciliation_status = "CONTAINED"
+            self._restart_diagnostics.extend(
+                getattr(self.executor, "state_diagnostics", [])
+                or ["malformed persisted MOCK state"]
+            )
+            return self.get_restart_reconciliation()
+
+        if classification == "CURRENT_VERSIONED_RECORD":
+            for symbol, record in sorted(positions.items()):
+                try:
+                    position = self.position_manager.hydrate_position(record)
+                    slot = next(
+                        (
+                            candidate
+                            for candidate in self._slots.values()
+                            if candidate.pair == symbol and candidate.state == "RUNNING"
+                        ),
+                        None,
+                    )
+                    if slot is None:
+                        slot = next(
+                            (
+                                candidate
+                                for candidate in self._slots.values()
+                                if candidate.state == "IDLE"
+                            ),
+                            None,
+                        )
+                    if slot is None:
+                        raise RuntimeError("no slot available for reconstructed position")
+                    slot.pair = position.symbol
+                    slot.entry_price = position.entry_price
+                    slot.quantity = position.quantity
+                    slot._state = "RUNNING"
+                    slot._restart_reconstructed = True
+                except Exception as exc:
+                    self._restart_capacity_reservations[symbol] = "HYDRATION_FAILED"
+                    self._restart_contained_symbols.add(symbol)
+                    self._restart_diagnostics.append(f"{symbol}: {exc}")
+        elif classification == "LEGACY_UNVERSIONED_RECORD":
+            for symbol in sorted(positions):
+                self._restart_capacity_reservations[symbol] = "LEGACY_STATE_REQUIRES_CONTAINMENT"
+                self._restart_contained_symbols.add(symbol)
+                self._restart_diagnostics.append(
+                    f"{symbol}: LEGACY_STATE_REQUIRES_CONTAINMENT"
+                )
+
+        self._restart_reconciliation_status = (
+            "CONTAINED"
+            if self._restart_capacity_reservations or self._restart_contained_symbols
+            else "RECONCILED"
+        )
+        return self.get_restart_reconciliation()
+
+    def get_restart_reconciliation(self):
+        return {
+            "status": self._restart_reconciliation_status,
+            "reserved_symbols": sorted(self._restart_capacity_reservations),
+            "contained_symbols": sorted(self._restart_contained_symbols),
+            "diagnostics": list(self._restart_diagnostics),
+        }
 
     def get_system_loss_streak(self) -> int:
         streak = 0
@@ -1646,6 +1727,10 @@ class SlotController:
 
     def run_cycle(self):
 
+        if self._restart_entries_blocked:
+            print("[RESTART FAIL-SAFE] entradas bloqueadas por estado MOCK inválido")
+            return
+
         self._contained_non_execution_slots = set()
 
         # ==========================================================
@@ -1723,6 +1808,7 @@ class SlotController:
                 "TRADING",
             )
         }
+        pairs_in_use.update(self._restart_capacity_reservations)
 
         attempted_symbols = set()
         approved_candidates = []
@@ -2351,6 +2437,12 @@ class SlotController:
                 if buy_executed_in_cycle:
                     continue
 
+                if self.get_active_positions() >= len(self._slots):
+                    print(
+                        "[CAPACITY BLOCK] restart state reserves all available slots"
+                    )
+                    continue
+
                 if candidate_index >= len(approved_candidates):
                     continue
 
@@ -2527,6 +2619,34 @@ class SlotController:
             )
 
             slot.pair = self._normalize_symbol(slot.pair)
+
+            restart_capacity_reservations = getattr(
+                self, "_restart_capacity_reservations", {}
+            )
+            restart_contained_symbols = getattr(
+                self, "_restart_contained_symbols", set()
+            )
+            position_manager_has_pair = False
+            position_manager = getattr(self, "position_manager", None)
+            has_position = getattr(position_manager, "has_position", None)
+            if callable(has_position):
+                position_manager_has_pair = bool(has_position(symbol=slot.pair))
+            if (
+                slot.pair in restart_capacity_reservations
+                or slot.pair in restart_contained_symbols
+                or position_manager_has_pair
+            ):
+                print(
+                    f"[DUPLICATE BLOCK] {slot.pair} reservado por estado de restart"
+                )
+                print(
+                    f"[BUY TRACE] stage=EXECUTE_BUY_BLOCKED | symbol={slot.pair} | "
+                    f"slot_id={slot.slot_id} | gate=RESTART_POSITION | "
+                    f"reason=POSITION_ALREADY_RECONCILED_OR_CONTAINED | no_effect=True"
+                )
+                slot.pending_buy_signal = None
+                slot.reset()
+                return
 
             # ========================================================
             # REVALIDAÇÃO FINAL ANTI-REENTRADA / ANTI-RACE CONDITION

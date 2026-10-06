@@ -112,13 +112,18 @@ def run():
     # ========================================================
     # SLOT CONTROLLER
     # ========================================================
+    print("[HEADLESS AUTHORITY]")
+    print("mode=OBSERVE_ONLY")
+    print("operational_effects=BLOCKED")
+    print("reason=GOVERNED_APPLICATION_AUTHORITY_UNAVAILABLE")
+
     slot_controller = SlotController(
         slot_ids=[1, 2, 3, 4],
         decision_engine=decision_engine,
         client=client,
         executor=executor,
         risk_manager=risk_manager,
-
+        operational_effects_blocked=True,
     )
 
     slot_controller.alo = alo

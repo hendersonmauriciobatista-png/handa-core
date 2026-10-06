@@ -49,6 +49,7 @@ class SlotController:
         symbol: str = "BTCUSDC",
         cooldown: float = 2.0,
         alo=None,
+        operational_effects_blocked: bool = False,
     ):
         self.symbol = symbol
         self.cooldown = cooldown
@@ -82,6 +83,8 @@ class SlotController:
         self._restart_contained_symbols = set()
         self._restart_diagnostics = []
         self._restart_entries_blocked = False
+        self.operational_effects_blocked = bool(operational_effects_blocked)
+        self._operational_containment_events = []
 
         # SLOTS
         self._slots = {slot_id: Slot(slot_id) for slot_id in slot_ids}
@@ -2551,12 +2554,62 @@ class SlotController:
     # EXECUÇÃO BUY
     # ========================================================
 
+    def _record_pre_execution_containment(self, *, operation, symbol, slot_id):
+        event = {
+            "operation": operation,
+            "symbol": symbol,
+            "slot_id": slot_id,
+            "status": "CONTAINED",
+            "outcome": "AUTHORITY_UNAVAILABLE",
+            "reason": "GOVERNED_APPLICATION_AUTHORITY_UNAVAILABLE",
+            "no_effect": True,
+        }
+        self._operational_containment_events.append(event)
+        if len(self._operational_containment_events) > 50:
+            self._operational_containment_events.pop(0)
+        return event
+
+    def _contain_pre_execution_buy(self, slot):
+        symbol = self._normalize_symbol(
+            getattr(slot, "pair", None)
+            or getattr(getattr(slot, "pending_buy_signal", None), "pair", None)
+            or "UNKNOWN"
+        )
+        print(
+            f"[BUY TRACE] stage=PRE_EXECUTION_AUTHORITY_BLOCKED "
+            f"reason=GOVERNED_APPLICATION_AUTHORITY_UNAVAILABLE no_effect=True"
+        )
+        event = self._record_pre_execution_containment(
+            operation="BUY",
+            symbol=symbol,
+            slot_id=slot.slot_id,
+        )
+        self.symbol_execution_lock.discard(symbol)
+        slot.pending_buy_signal = None
+        slot.reset()
+        return event
+
+    def _contain_pre_execution_sell(self, slot):
+        symbol = self._normalize_symbol(getattr(slot, "pair", None) or "UNKNOWN")
+        print(
+            f"[SELL TRACE] stage=PRE_EXECUTION_AUTHORITY_BLOCKED "
+            f"reason=GOVERNED_APPLICATION_AUTHORITY_UNAVAILABLE no_effect=True"
+        )
+        return self._record_pre_execution_containment(
+            operation="SELL",
+            symbol=symbol,
+            slot_id=slot.slot_id,
+        )
+
     def _execute_buy(self, slot):
 
         executor_called = False
         executor_accepted = False
 
         try:
+            if self.operational_effects_blocked:
+                return self._contain_pre_execution_buy(slot)
+
             if not self.client or not self.executor:
                 print(f"[SLOT {slot.slot_id}] BUY: executor/client não definido")
                 print(
@@ -2829,6 +2882,9 @@ class SlotController:
     def _execute_sell(self, slot, reason=CloseReason.MANUAL):
 
         try:
+            if self.operational_effects_blocked:
+                return self._contain_pre_execution_sell(slot)
+
             if not self.executor or not self.client:
                 print(f"[SLOT {slot.slot_id}] SELL: executor/client não definido")
                 return

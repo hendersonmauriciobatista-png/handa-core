@@ -44,6 +44,7 @@ MIGRATIONS = tuple(
         "007_position_effect_authority.sql",
         "008_effect_request_logical_binding.sql",
         "009_submission_authorization.sql",
+        "010_submission_authority_envelope_and_decision.sql",
     )
 )
 EXPECTED_URL = "postgresql://handa_test:handa_test_only@127.0.0.1:55432/handa_test"
@@ -164,6 +165,51 @@ def prepared():
     with connection.cursor() as cursor:
         cursor.execute(
             """
+            INSERT INTO handa_live.authority_envelope (
+                authority_envelope_id, runtime_mode, venue, account_scope,
+                allowed_sides, strategy_version, decision_contract_version,
+                policy_version, risk_policy_version, valid_from, valid_until,
+                configuration_digest, authority_contract_version, approved_by,
+                approval_reason
+            ) VALUES (
+                'envelope-submit-001', 'OBSERVE_ONLY', 'MOCK', 'TEST',
+                ARRAY['BUY'], 'strategy-test-v1', 'decision-contract-v1',
+                'policy-test-v1', 'risk-policy-test-v1',
+                CURRENT_TIMESTAMP - INTERVAL '1 second',
+                CURRENT_TIMESTAMP + INTERVAL '30 seconds',
+                'configuration-digest-test-001', 'submission-authority-v1',
+                'fixture-human-only', 'TEST_FIXTURE_AUTHORITY_ONLY'
+            )
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO handa_live.pre_execution_decision (
+                pre_execution_decision_id, intent_id, submission_attempt_id,
+                authority_envelope_id, decision_sequence, decision_outcome,
+                decision_reason, intent_semantic_digest,
+                submission_attempt_semantic_digest, decision_contract_version,
+                decision_engine_version, policy_version, risk_policy_version,
+                strategy_version, input_snapshot_digest, decision_semantics_digest,
+                global_safety_epoch, runtime_generation, runtime_mode, venue,
+                account_scope, evaluated_at, valid_until
+            ) VALUES (
+                'pre-execution-decision-submit-001',
+                'intent-submit-001', 'attempt-submit-001',
+                'envelope-submit-001', 1, 'ALLOW',
+                'TEST_FIXTURE_AUTHORITY_ONLY',
+                'intent-digest-submit-001', 'attempt-digest-submit-001',
+                'decision-contract-v1', 'decision-engine-test-v1',
+                'policy-test-v1', 'risk-policy-test-v1', 'strategy-test-v1',
+                'input-snapshot-submit-001', 'decision-semantics-submit-001',
+                0, 0, 'OBSERVE_ONLY', 'MOCK', 'TEST',
+                CURRENT_TIMESTAMP - INTERVAL '1 second',
+                CURRENT_TIMESTAMP + INTERVAL '30 seconds'
+            )
+            """
+        )
+        cursor.execute(
+            """
             INSERT INTO handa_live.submission_authorization (
                 submission_authorization_id, intent_id, submission_attempt_id,
                 client_order_id, venue, account_scope, symbol, side,
@@ -176,7 +222,8 @@ def prepared():
             (
                 "auth-submit-001", "intent-submit-001", "attempt-submit-001",
                 "client-submit-001", "MOCK", "TEST", "HYPEUSDC", "BUY",
-                Decimal("41.4117522032984"), None, "authority-ref-001",
+                Decimal("41.4117522032984"), None,
+                "pre-execution-decision-submit-001",
                 "fixture-issuer-only", "submission-authority-v1", 1, fingerprint,
             ),
         )

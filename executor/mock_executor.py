@@ -4,6 +4,7 @@
 # ============================================================
 
 from types import SimpleNamespace
+import copy
 import json
 import os
 import uuid
@@ -23,7 +24,8 @@ except Exception:
 
 
 class MockExecutor:
-    STATE_FORMAT_VERSION = 1
+    STATE_FORMAT_VERSION = 2
+    LEGACY_STATE_FORMAT_VERSION = 1
 
     """
     Executor MOCK compatível com múltiplos slots.
@@ -70,6 +72,8 @@ class MockExecutor:
 
         # pair -> dados da posição
         self.positions = {}
+        # client_order_id -> durable simulated venue order evidence
+        self.orders = {}
         self.live_shadow = (
             LiveShadowSimulator() if LiveShadowSimulator is not None else None
         )
@@ -122,13 +126,71 @@ class MockExecutor:
     # =================================================
     # EXECUTE BUY
     # =================================================
-    def execute_buy(self, signal):
+    @staticmethod
+    def _required_client_order_id(client_order_id):
+        if not isinstance(client_order_id, str) or not client_order_id.strip():
+            raise ValueError("MockExecutor: client_order_id must be non-empty")
+        return client_order_id.strip()
+
+    @staticmethod
+    def _number_text(value):
+        return format(float(value), ".15g")
+
+    def _submission_semantics(self, signal, pair):
+        return {
+            "symbol": pair,
+            "side": "BUY",
+            "entry_price": self._number_text(signal.entry_price),
+            "allocated_usdc": self._number_text(signal.allocated_usdc),
+            "stop_loss": self._number_text(signal.stop_loss),
+            "take_profit": self._number_text(signal.take_profit),
+        }
+
+    @staticmethod
+    def _order_evidence(order):
+        return copy.deepcopy(order)
+
+    def _normalized_order(self, order):
+        return normalize_external_execution(self._order_evidence(order))
+
+    def get_order_by_client_order_id(self, client_order_id):
+        """Read-only lookup of durable simulated venue evidence."""
+
+        client_order_id = self._required_client_order_id(client_order_id)
+        order = self.orders.get(client_order_id)
+        return self._order_evidence(order) if order is not None else None
+
+    def get_order_by_external_order_id(self, external_order_id):
+        """Read-only lookup of durable simulated venue evidence."""
+
+        if not isinstance(external_order_id, str) or not external_order_id.strip():
+            raise ValueError("MockExecutor: external_order_id must be non-empty")
+        for order in self.orders.values():
+            if order.get("external_order_id") == external_order_id.strip():
+                return self._order_evidence(order)
+        return None
+
+    def execute_buy(self, signal, *, client_order_id=None):
+
+        if not hasattr(self, "orders"):
+            self.orders = {}
 
         pair = str(signal.pair).strip().upper()
         entry_price = float(signal.entry_price)
         allocated_usdc = float(signal.allocated_usdc)
         stop_loss = float(signal.stop_loss)
         take_profit = float(signal.take_profit)
+
+        if client_order_id is not None:
+            client_order_id = self._required_client_order_id(client_order_id)
+            semantics = self._submission_semantics(signal, pair)
+            existing = self.orders.get(client_order_id)
+            if existing is not None:
+                if existing.get("request") != semantics:
+                    raise RuntimeError(
+                        "MockExecutor: conflicting client_order_id reuse rejected"
+                    )
+                return self._normalized_order(existing)
 
         if pair in self.positions:
             raise RuntimeError(f"MockExecutor: posição já aberta para {pair}")
@@ -144,8 +206,11 @@ class MockExecutor:
 
         quantity = allocated_usdc / entry_price
 
-        # registra posição local antes de persistir o novo estado
-        self.positions[pair] = {
+        previous_positions = copy.deepcopy(self.positions)
+        previous_orders = copy.deepcopy(self.orders)
+        previous_balance = self.balance_usdc
+
+        position = {
             "pair": pair,
             "entry_price": entry_price,
             "quantity": quantity,
@@ -155,8 +220,42 @@ class MockExecutor:
             "position_id": str(uuid.uuid4()),
             "opened_at": datetime.utcnow().isoformat(),
         }
+        self.positions[pair] = position
         self.balance_usdc -= allocated_usdc
-        self._save_state()
+
+        order = None
+        if client_order_id is not None:
+            external_order_id = f"mock-order-{uuid.uuid4().hex}"
+            trade_id = f"mock-fill-{uuid.uuid4().hex}"
+            order = {
+                "client_order_id": client_order_id,
+                "external_order_id": external_order_id,
+                "symbol": pair,
+                "side": "BUY",
+                "status": "FILLED",
+                "executedQty": quantity,
+                "cummulativeQuoteQty": allocated_usdc,
+                "fills": [
+                    {
+                        "tradeId": trade_id,
+                        "price": entry_price,
+                        "qty": quantity,
+                        "quoteQty": allocated_usdc,
+                    }
+                ],
+                "singleFill": True,
+                "fullExtentProven": True,
+                "rawSourceReference": "mock-exchange-buy",
+                "exchangeTimestamp": position["opened_at"],
+                "request": self._submission_semantics(signal, pair),
+            }
+            self.orders[client_order_id] = order
+
+        if self._save_state() is False:
+            self.balance_usdc = previous_balance
+            self.positions = previous_positions
+            self.orders = previous_orders
+            raise RuntimeError("MockExecutor: falha ao persistir BUY")
 
         if self.live_shadow:
             try:
@@ -168,6 +267,9 @@ class MockExecutor:
                 )
             except Exception as e:
                 print(f"[SHADOW BUY ERROR] {e}")
+
+        if order is not None:
+            return self._normalized_order(order)
 
         return normalize_external_execution(
             {
@@ -267,6 +369,29 @@ class MockExecutor:
         if version is None:
             self.state_format_version = None
             self.state_classification = "LEGACY_UNVERSIONED_RECORD"
+            self.orders = {}
+        elif version == self.LEGACY_STATE_FORMAT_VERSION:
+            required_fields = {
+                "pair",
+                "entry_price",
+                "quantity",
+                "allocated_usdc",
+                "stop_loss",
+                "take_profit",
+                "position_id",
+                "opened_at",
+            }
+            for record in normalized_positions.values():
+                missing = sorted(required_fields.difference(record))
+                if missing:
+                    raise ValueError(
+                        "versioned mock position missing fields: "
+                        + ", ".join(missing)
+                    )
+                datetime.fromisoformat(str(record["opened_at"]).replace("Z", "+00:00"))
+            self.state_format_version = version
+            self.state_classification = "CURRENT_VERSIONED_RECORD"
+            self.orders = {}
         elif version != self.STATE_FORMAT_VERSION:
             raise ValueError(f"unsupported mock state version: {version!r}")
         else:
@@ -289,6 +414,51 @@ class MockExecutor:
                 datetime.fromisoformat(str(record["opened_at"]).replace("Z", "+00:00"))
             self.state_format_version = self.STATE_FORMAT_VERSION
             self.state_classification = "CURRENT_VERSIONED_RECORD"
+
+            orders = data.get("orders", {}) or {}
+            if not isinstance(orders, dict):
+                raise ValueError("mock state orders must be an object")
+            required_order_fields = {
+                "client_order_id",
+                "external_order_id",
+                "symbol",
+                "side",
+                "status",
+                "executedQty",
+                "cummulativeQuoteQty",
+                "fills",
+                "singleFill",
+                "fullExtentProven",
+                "rawSourceReference",
+                "exchangeTimestamp",
+                "request",
+            }
+            normalized_orders = {}
+            for key, value in orders.items():
+                if not isinstance(value, dict):
+                    raise ValueError("mock state order must be an object")
+                missing = sorted(required_order_fields.difference(value))
+                if missing:
+                    raise ValueError(
+                        "versioned mock order missing fields: "
+                        + ", ".join(missing)
+                    )
+                order_client_id = self._required_client_order_id(
+                    value["client_order_id"]
+                )
+                if str(key) != order_client_id:
+                    raise ValueError("mock state order key must match client_order_id")
+                self._required_client_order_id(value["external_order_id"])
+                if value["side"] != "BUY" or value["status"] != "FILLED":
+                    raise ValueError("mock state order has unsupported semantics")
+                if not isinstance(value["fills"], list) or len(value["fills"]) != 1:
+                    raise ValueError("mock state governed order requires one fill")
+                fill = value["fills"][0]
+                trade_id = fill.get("tradeId") if isinstance(fill, dict) else None
+                if not isinstance(trade_id, str) or not trade_id.strip():
+                    raise ValueError("mock state governed order requires tradeId")
+                normalized_orders[order_client_id] = copy.deepcopy(value)
+            self.orders = normalized_orders
 
         self.positions = normalized_positions
 
@@ -337,8 +507,20 @@ class MockExecutor:
                 else 0.0
             )
 
+            state_version = (
+                self.STATE_FORMAT_VERSION
+                if self.orders
+                else (
+                    None
+                    if self.state_classification == "LEGACY_UNVERSIONED_RECORD"
+                    else (
+                        self.state_format_version
+                        if self.state_format_version in (1, self.STATE_FORMAT_VERSION)
+                        else self.LEGACY_STATE_FORMAT_VERSION
+                    )
+                )
+            )
             data = {
-                "state_format_version": self.STATE_FORMAT_VERSION,
                 "initial_balance": self.initial_balance,
                 "current_balance": self.balance_usdc,
                 "positions": self.positions,
@@ -346,9 +528,14 @@ class MockExecutor:
                 "pnl_pct": round(pnl_pct, 4),
                 "last_update": datetime.utcnow().isoformat(),
             }
+            if state_version is not None:
+                data["state_format_version"] = state_version
+            if state_version == self.STATE_FORMAT_VERSION:
+                data["orders"] = copy.deepcopy(self.orders)
 
             if self.state_repo is not None:
                 self.state_repo.save_system_state("mock_executor_state", data)
+                self.state_format_version = state_version
                 print(f"[MOCK STATE DB] salvo | balance={self.balance_usdc:.4f}")
                 return True
 
@@ -360,6 +547,7 @@ class MockExecutor:
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(temp_state_file, self.state_file)
+            self.state_format_version = state_version
 
             print(f"[MOCK STATE JSON] salvo | balance={self.balance_usdc:.4f}")
             return True

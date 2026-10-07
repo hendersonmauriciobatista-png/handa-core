@@ -248,10 +248,17 @@ class TransactionContext:
         owner_value: Any,
         sequence_column: str,
         lock_table: str,
+        *,
+        lock_owner_column: Optional[str] = None,
     ) -> int:
         self._ensure_active()
         return self._allocate_next_sequence_operation(
-            table, owner_column, owner_value, sequence_column, lock_table
+            table,
+            owner_column,
+            owner_value,
+            sequence_column,
+            lock_table,
+            lock_owner_column,
         )
 
     def _ensure_active(self) -> None:
@@ -284,8 +291,15 @@ def _build_transaction_operations(connection: Any, scope: ResourceScope) -> dict
             changes,
             returning_columns,
         ),
-        "allocate_next_sequence": lambda table, owner_column, owner_value, sequence_column, lock_table: _allocate_next_sequence(
-            connection, scope, table, owner_column, owner_value, sequence_column, lock_table
+        "allocate_next_sequence": lambda table, owner_column, owner_value, sequence_column, lock_table, lock_owner_column=None: _allocate_next_sequence(
+            connection,
+            scope,
+            table,
+            owner_column,
+            owner_value,
+            sequence_column,
+            lock_table,
+            lock_owner_column,
         ),
     }
 
@@ -306,6 +320,7 @@ def _allocate_next_sequence(
     owner_value: Any,
     sequence_column: str,
     lock_table: str,
+    lock_owner_column: Optional[str] = None,
 ) -> int:
     resource = scope.resolve(table)
     lock_resource = scope.resolve(lock_table)
@@ -313,7 +328,8 @@ def _allocate_next_sequence(
         raise InvalidCapabilityRequest("sequence owner is outside the target resource")
     if sequence_column not in resource.readable_columns:
         raise InvalidCapabilityRequest("sequence column is outside the target resource")
-    if owner_column not in lock_resource.readable_columns:
+    effective_lock_owner_column = lock_owner_column or owner_column
+    if effective_lock_owner_column not in lock_resource.readable_columns:
         raise InvalidCapabilityRequest("sequence lock owner is outside the lock resource")
     statement = sql.SQL(
         "SELECT 1 FROM {lock_schema}.{lock_table} "
@@ -321,7 +337,7 @@ def _allocate_next_sequence(
     ).format(
         lock_schema=sql.Identifier(lock_resource.schema),
         lock_table=sql.Identifier(lock_resource.table),
-        owner_column=sql.Identifier(owner_column),
+        owner_column=sql.Identifier(effective_lock_owner_column),
     )
     maximum = sql.SQL(
         "SELECT COALESCE(MAX({sequence_column}), 0) + 1 "

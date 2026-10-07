@@ -148,6 +148,7 @@ def _insert_decision(
         """
         INSERT INTO handa_live.pre_execution_decision (
             pre_execution_decision_id, intent_id, submission_attempt_id,
+            evaluation_request_id, evaluation_request_digest,
             authority_envelope_id, decision_sequence, decision_outcome,
             decision_reason, intent_semantic_digest,
             submission_attempt_semantic_digest, decision_contract_version,
@@ -156,24 +157,30 @@ def _insert_decision(
             global_safety_epoch, runtime_generation, runtime_mode, venue,
             account_scope, evaluated_at, valid_until
         ) VALUES (
-            %s, %s, %s, %s, %s, %s, 'TEST_FIXTURE_AUTHORITY_ONLY',
+            %s, %s, %s, %s, %s, %s, %s, %s, 'TEST_FIXTURE_AUTHORITY_ONLY',
             %s, %s, 'decision-contract-v1', 'decision-engine-test-v1',
             'policy-test-v1', 'risk-policy-test-v1', 'strategy-test-v1',
             'input-snapshot-test', 'decision-semantics-test', 0, 0,
             'OBSERVE_ONLY', 'MOCK', 'TEST',
             CURRENT_TIMESTAMP - INTERVAL '1 second',
-            CURRENT_TIMESTAMP + INTERVAL '30 seconds'
+            CASE WHEN %s = 'BLOCK'
+                 THEN CURRENT_TIMESTAMP - INTERVAL '1 second'
+                 ELSE CURRENT_TIMESTAMP + INTERVAL '30 seconds'
+            END
         )
         """,
         (
             decision_id,
             intent_id,
             attempt_id,
+            f"TEST_ONLY_EVALUATION_IDENTITY-{decision_id}",
+            f"TEST_ONLY_EVALUATION_DIGEST-{decision_id}",
             envelope_id,
             sequence,
             outcome,
             f"intent-digest-{intent_id}",
             f"attempt-digest-{attempt_id}",
+            outcome,
         ),
     )
 

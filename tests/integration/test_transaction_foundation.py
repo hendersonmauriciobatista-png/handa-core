@@ -479,6 +479,97 @@ def test_constraint_failure_is_not_success(probe_table):
         coordinator.close()
 
 
+def test_sequence_allocator_supports_distinct_target_and_lock_owner_columns(probe_table):
+    target_table = "handa_3a1_sequence_target"
+    lock_table = "handa_3a1_sequence_lock"
+    connection = psycopg2.connect(probe_table)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"CREATE TABLE {target_table} (request_owner TEXT NOT NULL, sequence BIGINT NOT NULL)"
+            )
+            cursor.execute(
+                f"CREATE TABLE {lock_table} (attempt_id TEXT PRIMARY KEY)"
+            )
+            cursor.execute(
+                f"INSERT INTO {lock_table} (attempt_id) VALUES ('attempt-1')"
+            )
+        connection.commit()
+
+        scope = ResourceScope(
+            (
+                ResourceSpec(
+                    schema="public",
+                    table=target_table,
+                    readable_columns=frozenset({"request_owner", "sequence"}),
+                    writable_columns=frozenset({"request_owner", "sequence"}),
+                    key_columns=frozenset({"request_owner"}),
+                    ordering_columns=("request_owner", "sequence"),
+                ),
+                ResourceSpec(
+                    schema="public",
+                    table=lock_table,
+                    readable_columns=frozenset({"attempt_id"}),
+                    writable_columns=frozenset(),
+                    key_columns=frozenset({"attempt_id"}),
+                    ordering_columns=("attempt_id",),
+                ),
+            )
+        )
+        coordinator = PersistenceCoordinator(
+            probe_table, EXPECTED_IDENTITY, resource_scope=scope
+        )
+        try:
+            with coordinator.transaction() as context:
+                first = context.allocate_next_sequence(
+                    target_table,
+                    "request_owner",
+                    "attempt-1",
+                    "sequence",
+                    lock_table,
+                    lock_owner_column="attempt_id",
+                )
+                assert first == 1
+                context.insert(
+                    target_table,
+                    {"request_owner": "attempt-1", "sequence": first},
+                )
+                second = context.allocate_next_sequence(
+                    target_table,
+                    "request_owner",
+                    "attempt-1",
+                    "sequence",
+                    lock_table,
+                    lock_owner_column="attempt_id",
+                )
+                assert second == 2
+        finally:
+            coordinator.close()
+
+        with pytest.raises(InvalidCapabilityRequest):
+            coordinator = PersistenceCoordinator(
+                probe_table, EXPECTED_IDENTITY, resource_scope=scope
+            )
+            try:
+                with coordinator.transaction() as context:
+                    context.allocate_next_sequence(
+                        target_table,
+                        "request_owner",
+                        "missing-attempt",
+                        "sequence",
+                        lock_table,
+                        lock_owner_column="attempt_id",
+                    )
+            finally:
+                coordinator.close()
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute(f"DROP TABLE IF EXISTS {target_table}")
+            cursor.execute(f"DROP TABLE IF EXISTS {lock_table}")
+        connection.commit()
+        connection.close()
+
+
 def test_all_structured_operations_reject_inactive_context(probe_table):
     coordinator = _coordinator(probe_table)
     holder = []

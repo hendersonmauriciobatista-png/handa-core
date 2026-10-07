@@ -45,6 +45,7 @@ MIGRATIONS = tuple(
         "008_effect_request_logical_binding.sql",
         "009_submission_authorization.sql",
         "010_submission_authority_envelope_and_decision.sql",
+        "011_pre_execution_evaluation_idempotency.sql",
     )
 )
 EXPECTED_URL = "postgresql://handa_test:handa_test_only@127.0.0.1:55432/handa_test"
@@ -186,6 +187,7 @@ def prepared():
             """
             INSERT INTO handa_live.pre_execution_decision (
                 pre_execution_decision_id, intent_id, submission_attempt_id,
+                evaluation_request_id, evaluation_request_digest,
                 authority_envelope_id, decision_sequence, decision_outcome,
                 decision_reason, intent_semantic_digest,
                 submission_attempt_semantic_digest, decision_contract_version,
@@ -196,6 +198,8 @@ def prepared():
             ) VALUES (
                 'pre-execution-decision-submit-001',
                 'intent-submit-001', 'attempt-submit-001',
+                'TEST_ONLY_EVALUATION_IDENTITY-submit-001',
+                'TEST_ONLY_EVALUATION_DIGEST-submit-001',
                 'envelope-submit-001', 1, 'ALLOW',
                 'TEST_FIXTURE_AUTHORITY_ONLY',
                 'intent-digest-submit-001', 'attempt-digest-submit-001',

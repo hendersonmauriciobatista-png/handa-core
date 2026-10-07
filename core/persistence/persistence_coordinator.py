@@ -93,6 +93,7 @@ class PersistenceCoordinator:
             is_active,
             insert_returning_operation=operations["insert_returning"],
             read_by_key_operation=operations["read_by_key"],
+            read_by_key_for_update_operation=operations["read_by_key_for_update"],
             enumerate_operation=operations["enumerate"],
             update_if_version_operation=operations["update_if_version"],
             allocate_next_sequence_operation=operations["allocate_next_sequence"],

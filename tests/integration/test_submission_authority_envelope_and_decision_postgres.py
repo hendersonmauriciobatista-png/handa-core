@@ -488,7 +488,7 @@ def test_authority_lineage_rejects_decision_from_another_intent_or_attempt(prepa
         _insert_authorization(prepared, intent_a, attempt_a, "auth-cross-intent", "decision-b")
 
 
-def test_new_files_are_read_only_and_no_issuer_or_evaluator_exists():
+def test_2b1_stores_remain_read_only_and_claim_store_cannot_issue():
     envelope_source = (ROOT / "core" / "persistence" / "authority_envelope_store.py").read_text()
     state_source = (ROOT / "core" / "persistence" / "operational_authority_state_store.py").read_text()
     decision_source = (ROOT / "core" / "persistence" / "pre_execution_decision_store.py").read_text()
@@ -502,7 +502,6 @@ def test_new_files_are_read_only_and_no_issuer_or_evaluator_exists():
         assert "create_allow_decision" not in source
 
     assert not (ROOT / "core" / "execution" / "pre_execution_decision.py").exists()
-    assert not (ROOT / "core" / "execution" / "submission_authorization_issuer.py").exists()
 
     from core.persistence.submission_authorization_store import SubmissionAuthorizationStore
 

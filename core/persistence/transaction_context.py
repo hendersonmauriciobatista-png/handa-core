@@ -160,6 +160,7 @@ class TransactionContext:
         "_insert_operation",
         "_insert_returning_operation",
         "_read_by_key_operation",
+        "_read_by_key_for_update_operation",
         "_enumerate_operation",
         "_update_if_version_operation",
         "_allocate_next_sequence_operation",
@@ -173,6 +174,7 @@ class TransactionContext:
         *,
         insert_returning_operation: Callable[..., ImmutableRow],
         read_by_key_operation: Callable[..., Optional[ImmutableRow]],
+        read_by_key_for_update_operation: Callable[..., Optional[ImmutableRow]],
         enumerate_operation: Callable[..., ImmutablePage],
         update_if_version_operation: Callable[..., ImmutableRow],
         allocate_next_sequence_operation: Callable[..., int],
@@ -180,6 +182,7 @@ class TransactionContext:
         self._insert_operation = insert_operation
         self._insert_returning_operation = insert_returning_operation
         self._read_by_key_operation = read_by_key_operation
+        self._read_by_key_for_update_operation = read_by_key_for_update_operation
         self._enumerate_operation = enumerate_operation
         self._update_if_version_operation = update_if_version_operation
         self._allocate_next_sequence_operation = allocate_next_sequence_operation
@@ -210,6 +213,15 @@ class TransactionContext:
     ) -> Optional[ImmutableRow]:
         self._ensure_active()
         return self._read_by_key_operation(table, key_values, columns)
+
+    def read_by_key_for_update(
+        self,
+        table: str,
+        key_values: Mapping[str, Any],
+        columns: Sequence[str],
+    ) -> Optional[ImmutableRow]:
+        self._ensure_active()
+        return self._read_by_key_for_update_operation(table, key_values, columns)
 
     def enumerate(
         self,
@@ -278,6 +290,9 @@ def _build_transaction_operations(connection: Any, scope: ResourceScope) -> dict
         ),
         "read_by_key": lambda table, key_values, columns: _read_by_key(
             connection, scope, table, key_values, columns
+        ),
+        "read_by_key_for_update": lambda table, key_values, columns: _read_by_key(
+            connection, scope, table, key_values, columns, for_update=True
         ),
         "enumerate": lambda table, predicates, columns, limit, cursor=None: _enumerate_rows(
             connection, scope, table, predicates, columns, limit, cursor
@@ -368,13 +383,24 @@ def _insert_returning(connection: Any, scope: ResourceScope, table: str, values:
     return ImmutableRow(dict(zip(columns, row)))
 
 
-def _read_by_key(connection: Any, scope: ResourceScope, table: str, key_values: Mapping[str, Any], columns: Sequence[str]) -> Optional[ImmutableRow]:
+def _read_by_key(
+    connection: Any,
+    scope: ResourceScope,
+    table: str,
+    key_values: Mapping[str, Any],
+    columns: Sequence[str],
+    *,
+    for_update: bool = False,
+) -> Optional[ImmutableRow]:
     resource = scope.resolve(table)
     selected = _validate_columns(resource, columns)
     keys = _validate_key_values(resource, key_values)
     where_sql, parameters = _equality_predicates(keys)
-    statement = sql.SQL("SELECT {} FROM {} WHERE {} LIMIT 1").format(
-        _identifiers(selected), _resource_identifier(resource), where_sql
+    statement = sql.SQL("SELECT {} FROM {} WHERE {} LIMIT 1{}").format(
+        _identifiers(selected),
+        _resource_identifier(resource),
+        where_sql,
+        sql.SQL(" FOR UPDATE") if for_update else sql.SQL(""),
     )
     with _cursor(connection) as cursor:
         _execute(cursor, statement, parameters)

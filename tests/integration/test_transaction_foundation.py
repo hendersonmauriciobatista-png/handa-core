@@ -1,4 +1,6 @@
 import os
+from threading import Event, Thread
+from time import sleep
 from dataclasses import FrozenInstanceError
 from urllib.parse import urlparse
 
@@ -214,6 +216,7 @@ def test_context_uses_local_capability_without_global_registry(probe_table):
                 "_insert_operation",
                 "_insert_returning_operation",
                 "_read_by_key_operation",
+                "_read_by_key_for_update_operation",
                 "_enumerate_operation",
                 "_update_if_version_operation",
                 "_allocate_next_sequence_operation",
@@ -251,8 +254,95 @@ def test_resource_scope_rejects_unauthorized_resources_and_columns(probe_table):
                     {"unknown_key": "blocked"},
                     ("participant",),
                 )
+            with pytest.raises(InvalidCapabilityRequest):
+                context.read_by_key_for_update(
+                    "not_authorized",
+                    {"participant": "blocked"},
+                    ("participant",),
+                )
+            with pytest.raises(InvalidCapabilityRequest):
+                context.read_by_key_for_update(
+                    PROBE_TABLE,
+                    {"participant": "blocked"},
+                    ("not_authorized_column",),
+                )
+            with pytest.raises(InvalidCapabilityRequest):
+                context.read_by_key_for_update(
+                    PROBE_TABLE,
+                    {"unknown_key": "blocked"},
+                    ("participant",),
+                )
     finally:
         coordinator.close()
+
+
+def test_read_by_key_for_update_returns_rows_and_missing_rows_are_none(probe_table):
+    coordinator = _coordinator(probe_table)
+    try:
+        with coordinator.transaction() as context:
+            context.insert(PROBE_TABLE, {"participant": "locked", "marker": "value"})
+    finally:
+        coordinator.close()
+
+    coordinator = _coordinator(probe_table)
+    try:
+        with coordinator.transaction() as context:
+            row = context.read_by_key_for_update(
+                PROBE_TABLE, {"participant": "locked"}, ("participant", "marker")
+            )
+            missing = context.read_by_key_for_update(
+                PROBE_TABLE, {"participant": "missing"}, ("participant", "marker")
+            )
+            assert dict(row) == {"participant": "locked", "marker": "value"}
+            assert missing is None
+    finally:
+        coordinator.close()
+
+
+def test_read_by_key_for_update_blocks_competing_transaction_until_release(probe_table):
+    setup = _coordinator(probe_table)
+    try:
+        with setup.transaction() as context:
+            context.insert(PROBE_TABLE, {"participant": "contended", "marker": "value"})
+    finally:
+        setup.close()
+
+    first = _coordinator(probe_table)
+    second = _coordinator(probe_table)
+    first_transaction = first.transaction()
+    first_context = first_transaction.__enter__()
+    acquired = Event()
+    finished = Event()
+    errors = []
+
+    def competing_reader():
+        try:
+            with second.transaction() as context:
+                context.read_by_key_for_update(
+                    PROBE_TABLE, {"participant": "contended"}, ("participant",)
+                )
+                acquired.set()
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            finished.set()
+
+    try:
+        first_context.read_by_key_for_update(
+            PROBE_TABLE, {"participant": "contended"}, ("participant",)
+        )
+        thread = Thread(target=competing_reader)
+        thread.start()
+        sleep(0.2)
+        assert not acquired.is_set()
+        first_transaction.__exit__(None, None, None)
+        assert finished.wait(2)
+        thread.join(timeout=2)
+        assert not errors
+        assert acquired.is_set()
+    finally:
+        first.close()
+        second.close()
 
 
 def test_resource_scope_is_immutable():

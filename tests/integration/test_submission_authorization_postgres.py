@@ -14,6 +14,7 @@ import psycopg2
 import pytest
 
 from core.execution.governed_mock_submission_gateway import GovernedMockSubmissionGateway
+from core.execution.authority_digest import attempt_semantic_digest, intent_semantic_digest
 from core.execution.live_order_models import LiveOrderIntent, OrderSide
 from core.execution.submission_authority import (
     ClaimDisposition,
@@ -95,28 +96,7 @@ def _coordinator(url: str) -> PersistenceCoordinator:
 
 
 def _request(**overrides) -> SubmissionClaimRequest:
-    values = {
-        "submission_authorization_id": "auth-submit-001",
-        "expected_version": 0,
-        "claimant_id": "runtime-claimant-001",
-        "intent_id": "intent-submit-001",
-        "submission_attempt_id": "attempt-submit-001",
-        "client_order_id": "client-submit-001",
-        "venue": "MOCK",
-        "account_scope": "TEST",
-        "symbol": "HYPEUSDC",
-        "side": "BUY",
-        "requested_quote_amount": Decimal("41.4117522032984"),
-        "requested_base_qty": None,
-    }
-    values["submission_fingerprint"] = submission_fingerprint(**{
-        key: values[key]
-        for key in (
-            "intent_id", "submission_attempt_id", "client_order_id", "venue",
-            "account_scope", "symbol", "side", "requested_quote_amount",
-            "requested_base_qty",
-        )
-    })
+    values = {"submission_authorization_id": "auth-submit-001"}
     values.update(overrides)
     return SubmissionClaimRequest(**values)
 
@@ -173,7 +153,7 @@ def prepared():
                 configuration_digest, authority_contract_version, approved_by,
                 approval_reason
             ) VALUES (
-                'envelope-submit-001', 'OBSERVE_ONLY', 'MOCK', 'TEST',
+                'envelope-submit-001', 'OPERATIONAL_ENABLED', 'MOCK', 'TEST',
                 ARRAY['BUY'], 'strategy-test-v1', 'decision-contract-v1',
                 'policy-test-v1', 'risk-policy-test-v1',
                 CURRENT_TIMESTAMP - INTERVAL '1 second',
@@ -183,6 +163,53 @@ def prepared():
             )
             """
         )
+        cursor.execute(
+            """
+            UPDATE handa_live.operational_authority_state
+            SET operational_mode = 'OPERATIONAL_ENABLED',
+                active_authority_envelope_id = 'envelope-submit-001',
+                current_version = 1,
+                changed_by = 'fixture-human-only',
+                change_reason = 'TEST_FIXTURE_AUTHORITY_ONLY'
+            WHERE state_id IS TRUE
+            """
+        )
+        cursor.execute(
+            """
+            SELECT intent_id, venue, account_scope, client_order_id, slot_id,
+                   symbol, side, requested_quote_amount, requested_base_qty,
+                   policy_context, submission_lifecycle_state, execution_certainty,
+                   reconciliation_state, exchange_order_id, current_version,
+                   current_context_id, current_decision_id, recorded_at
+            FROM handa_live.order_intent WHERE intent_id = 'intent-submit-001'
+            """
+        )
+        intent_row = dict(zip(
+            ("intent_id", "venue", "account_scope", "client_order_id", "slot_id",
+             "symbol", "side", "requested_quote_amount", "requested_base_qty",
+             "policy_context", "submission_lifecycle_state", "execution_certainty",
+             "reconciliation_state", "exchange_order_id", "current_version",
+             "current_context_id", "current_decision_id", "recorded_at"),
+            cursor.fetchone(),
+        ))
+        cursor.execute(
+            """
+            SELECT attempt_id, intent_id, attempt_sequence, venue, context_id,
+                   account_scope, client_order_id, submission_lifecycle_state,
+                   exchange_order_id, transport_status, transport_error, recorded_at,
+                   observed_at, exchange_event_time
+            FROM handa_live.submission_attempt WHERE attempt_id = 'attempt-submit-001'
+            """
+        )
+        attempt_row = dict(zip(
+            ("attempt_id", "intent_id", "attempt_sequence", "venue", "context_id",
+             "account_scope", "client_order_id", "submission_lifecycle_state",
+             "exchange_order_id", "transport_status", "transport_error", "recorded_at",
+             "observed_at", "exchange_event_time"),
+            cursor.fetchone(),
+        ))
+        intent_digest = intent_semantic_digest(intent_row)
+        attempt_digest = attempt_semantic_digest(attempt_row)
         cursor.execute(
             """
             INSERT INTO handa_live.pre_execution_decision (
@@ -202,15 +229,16 @@ def prepared():
                 'TEST_ONLY_EVALUATION_DIGEST-submit-001',
                 'envelope-submit-001', 1, 'ALLOW',
                 'TEST_FIXTURE_AUTHORITY_ONLY',
-                'intent-digest-submit-001', 'attempt-digest-submit-001',
-                'decision-contract-v1', 'decision-engine-test-v1',
+                %s, %s,
+                'decision-contract-v1', 'buy-signal-evidence-v1',
                 'policy-test-v1', 'risk-policy-test-v1', 'strategy-test-v1',
                 'input-snapshot-submit-001', 'decision-semantics-submit-001',
-                0, 0, 'OBSERVE_ONLY', 'MOCK', 'TEST',
+                0, 0, 'OPERATIONAL_ENABLED', 'MOCK', 'TEST',
                 CURRENT_TIMESTAMP - INTERVAL '1 second',
                 CURRENT_TIMESTAMP + INTERVAL '30 seconds'
             )
-            """
+            """,
+            (intent_digest, attempt_digest),
         )
         cursor.execute(
             """
@@ -228,7 +256,7 @@ def prepared():
                 "client-submit-001", "MOCK", "TEST", "HYPEUSDC", "BUY",
                 Decimal("41.4117522032984"), None,
                 "pre-execution-decision-submit-001",
-                "fixture-issuer-only", "submission-authority-v1", 1, fingerprint,
+                "handa-submission-authorization-issuer", "submission-authority-v1", 1, fingerprint,
             ),
         )
     connection.commit()
@@ -284,7 +312,7 @@ def test_fingerprint_is_deterministic_and_decimal_safe():
         )
 
 
-def test_single_claim_commits_once_and_restart_cannot_rearm(prepared):
+def test_single_claim_commits_once_and_restart_replays_capability(prepared):
     _, coordinator, store = prepared
     result = store.claim_authorization(_request())
     assert result.disposition is ClaimDisposition.CLAIMED
@@ -297,46 +325,34 @@ def test_single_claim_commits_once_and_restart_cannot_rearm(prepared):
     restarted = _coordinator(_database_url())
     try:
         restarted_result = SubmissionAuthorizationStore(restarted).claim_authorization(_request())
-        assert restarted_result.disposition is ClaimDisposition.ALREADY_CLAIMED
-        assert restarted_result.capability is None
+        assert restarted_result.disposition is ClaimDisposition.CLAIM_REPLAY
+        assert restarted_result.capability is not None
+        assert restarted_result.capability.claimed_version == 1
     finally:
         restarted.close()
 
 
-def test_identity_mismatches_fail_closed_without_partial_claim(prepared):
+def test_claim_input_is_c4_and_missing_authorization_fails_closed(prepared):
     _, _, store = prepared
-    mismatches = (
-        {"intent_id": "wrong-intent"},
-        {"submission_attempt_id": "wrong-attempt"},
-        {"client_order_id": "wrong-client"},
-        {"venue": "OTHER"},
-        {"account_scope": "OTHER"},
-        {"symbol": "BTCUSDC"},
-        {"side": "SELL"},
-        {"requested_quote_amount": Decimal("99")},
-        {"submission_fingerprint": "00" * 32},
-        {"expected_version": 1},
-    )
-    for mismatch in mismatches:
-        result = store.claim_authorization(_request(**mismatch))
-        assert result.disposition is ClaimDisposition.CONFLICT
-        assert result.capability is None
-        assert store.get_authorization("auth-submit-001")["authorization_state"] == "AUTHORIZED"
+    result = store.claim_authorization(SubmissionClaimRequest("missing-auth"))
+    assert result.disposition is ClaimDisposition.NOT_FOUND
+    assert result.capability is None
+    assert store.get_authorization("auth-submit-001")["authorization_state"] == "AUTHORIZED"
 
 
-def test_cross_session_race_has_one_winner_and_no_retry(prepared):
+def test_cross_session_race_has_one_winner_and_one_canonical_replay(prepared):
     url, _, _ = prepared
     barrier = threading.Barrier(2)
     results = []
     errors = []
 
-    def worker(claimant):
+    def worker():
         coordinator = _coordinator(url)
         try:
             barrier.wait(timeout=10)
             results.append(
                 SubmissionAuthorizationStore(coordinator).claim_authorization(
-                    _request(claimant_id=claimant)
+                    _request()
                 )
             )
         except Exception as exc:  # pragma: no cover - surfaced by assertion below
@@ -345,8 +361,8 @@ def test_cross_session_race_has_one_winner_and_no_retry(prepared):
             coordinator.close()
 
     threads = [
-        threading.Thread(target=worker, args=("claimant-a",)),
-        threading.Thread(target=worker, args=("claimant-b",)),
+        threading.Thread(target=worker),
+        threading.Thread(target=worker),
     ]
     for thread in threads:
         thread.start()
@@ -355,8 +371,8 @@ def test_cross_session_race_has_one_winner_and_no_retry(prepared):
     assert not errors
     assert len(results) == 2
     assert sum(result.disposition is ClaimDisposition.CLAIMED for result in results) == 1
-    assert sum(result.capability is not None for result in results) == 1
-    assert any(result.disposition is ClaimDisposition.ALREADY_CLAIMED for result in results)
+    assert sum(result.capability is not None for result in results) == 2
+    assert any(result.disposition is ClaimDisposition.CLAIM_REPLAY for result in results)
 
 
 @pytest.mark.parametrize(
@@ -442,8 +458,9 @@ def test_persistence_failure_rolls_back_claim_atomically(prepared):
     finally:
         connection.close()
 
-    with pytest.raises(PersistenceFailure):
-        store.claim_authorization(_request())
+    result = store.claim_authorization(_request())
+    assert result.disposition is ClaimDisposition.CANNOT_CLAIM
+    assert result.capability is None
 
     connection = psycopg2.connect(url)
     try:
@@ -483,10 +500,12 @@ def test_cw_a_has_no_external_call_and_cw_b_composes_existing_fw2_once(prepared,
     claim = store.claim_authorization(_request())
     assert claim.disposition is ClaimDisposition.CLAIMED
 
-    # Window A: a restart sees CLAIMED and therefore has no capability to submit.
+    # Window A: a restart reconstructs the capability from the committed row.
     restarted = _coordinator(_database_url())
     try:
-        assert SubmissionAuthorizationStore(restarted).claim_authorization(_request()).capability is None
+        replay = SubmissionAuthorizationStore(restarted).claim_authorization(_request())
+        assert replay.disposition is ClaimDisposition.CLAIM_REPLAY
+        assert replay.capability is not None
     finally:
         restarted.close()
 

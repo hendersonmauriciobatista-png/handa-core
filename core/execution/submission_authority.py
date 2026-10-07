@@ -17,9 +17,12 @@ from typing import Any, Optional
 
 class ClaimDisposition(str, Enum):
     CLAIMED = "CLAIMED"
+    CLAIM_REPLAY = "CLAIM_REPLAY"
     ALREADY_CLAIMED = "ALREADY_CLAIMED"
     NOT_FOUND = "NOT_FOUND"
     CONFLICT = "CONFLICT"
+    NOT_CURRENT = "NOT_CURRENT"
+    CANNOT_CLAIM = "CANNOT_CLAIM"
 
 
 def canonical_decimal(value: Any) -> Optional[str]:
@@ -77,31 +80,20 @@ def submission_fingerprint(
 @dataclass(frozen=True)
 class SubmissionClaimRequest:
     submission_authorization_id: str
-    expected_version: int
-    claimant_id: str
-    intent_id: str
-    submission_attempt_id: str
-    client_order_id: str
-    venue: str
-    account_scope: str
-    symbol: str
-    side: str
-    requested_quote_amount: Any = None
-    requested_base_qty: Any = None
-    submission_fingerprint: str = ""
 
 
 @dataclass(frozen=True)
 class ClaimResult:
     disposition: ClaimDisposition
     capability: Optional["ClaimedSubmissionCapability"] = None
+    reason: str = ""
 
     def __post_init__(self) -> None:
-        if self.disposition is ClaimDisposition.CLAIMED:
+        if self.disposition in {ClaimDisposition.CLAIMED, ClaimDisposition.CLAIM_REPLAY}:
             if self.capability is None:
-                raise ValueError("CLAIMED requires a capability")
+                raise ValueError("successful claim results require a capability")
         elif self.capability is not None:
-            raise ValueError("non-CLAIMED results cannot carry capability")
+            raise ValueError("non-successful claim results cannot carry capability")
 
 
 _CAPABILITY_MARKER = object()

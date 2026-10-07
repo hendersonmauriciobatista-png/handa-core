@@ -9,6 +9,7 @@ import json
 import os
 import uuid
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from core.execution.execution_fact import normalize_external_execution
 
 try:
@@ -282,6 +283,99 @@ class MockExecutor:
                 "rawSourceReference": "mock-exchange-buy",
             }
         )
+
+    # =================================================
+    # GOVERNED CAPABILITY-NEUTRAL BUY
+    # =================================================
+    def execute_authorized_buy(
+        self,
+        *,
+        symbol: str,
+        requested_quote_amount: Decimal,
+        client_order_id: str,
+    ):
+        """Execute the narrow exact-quote primitive used by governed MOCK transport."""
+
+        if not isinstance(requested_quote_amount, Decimal):
+            raise TypeError("requested_quote_amount must be Decimal")
+        if not requested_quote_amount.is_finite() or requested_quote_amount <= 0:
+            raise ValueError("requested_quote_amount must be positive and finite")
+        pair = str(symbol).strip().upper()
+        client_order_id = self._required_client_order_id(client_order_id)
+        if not pair:
+            raise ValueError("MockExecutor: symbol must be non-empty")
+
+        quote_text = format(requested_quote_amount.normalize(), "f")
+        semantics = {
+            "symbol": pair,
+            "side": "BUY",
+            "requested_quote_amount": quote_text,
+        }
+        existing = self.orders.get(client_order_id)
+        if existing is not None:
+            if existing.get("request") != semantics:
+                raise RuntimeError("MockExecutor: conflicting client_order_id reuse rejected")
+            return self._normalized_order(existing)
+
+        if pair in self.positions:
+            raise RuntimeError(f"MockExecutor: posição já aberta para {pair}")
+        balance = Decimal(str(self.balance_usdc))
+        if requested_quote_amount > balance:
+            raise RuntimeError("MockExecutor: saldo insuficiente")
+
+        if self.client is not None:
+            price = Decimal(str(self.get_current_price(pair)))
+        else:
+            price = Decimal("100")
+        if not price.is_finite() or price <= 0:
+            raise RuntimeError("MockExecutor: preço inválido")
+        quantity = requested_quote_amount / price
+        quantity_text = format(quantity.normalize(), "f")
+        price_text = format(price.normalize(), "f")
+
+        previous_positions = copy.deepcopy(self.positions)
+        previous_orders = copy.deepcopy(self.orders)
+        previous_balance = self.balance_usdc
+        opened_at = datetime.utcnow().isoformat()
+        position = {
+            "pair": pair,
+            "entry_price": float(price),
+            "quantity": float(quantity),
+            "allocated_usdc": float(requested_quote_amount),
+            "stop_loss": None,
+            "take_profit": None,
+            "position_id": str(uuid.uuid4()),
+            "opened_at": opened_at,
+        }
+        self.positions[pair] = position
+        self.balance_usdc -= float(requested_quote_amount)
+        order = {
+            "client_order_id": client_order_id,
+            "external_order_id": f"mock-order-{uuid.uuid4().hex}",
+            "symbol": pair,
+            "side": "BUY",
+            "status": "FILLED",
+            "executedQty": quantity_text,
+            "cummulativeQuoteQty": quote_text,
+            "fills": [{
+                "tradeId": f"mock-fill-{uuid.uuid4().hex}",
+                "price": price_text,
+                "qty": quantity_text,
+                "quoteQty": quote_text,
+            }],
+            "singleFill": True,
+            "fullExtentProven": True,
+            "rawSourceReference": "mock-governed-capability-buy",
+            "exchangeTimestamp": opened_at,
+            "request": semantics,
+        }
+        self.orders[client_order_id] = order
+        if self._save_state() is False:
+            self.balance_usdc = previous_balance
+            self.positions = previous_positions
+            self.orders = previous_orders
+            raise RuntimeError("MockExecutor: falha ao persistir governed BUY")
+        return self._normalized_order(order)
 
     # =================================================
     # EXECUTE SELL

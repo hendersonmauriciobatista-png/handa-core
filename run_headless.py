@@ -19,6 +19,10 @@ sys.path.append(base_path)
 from binance.client import Client
 
 from core.execution_mode import set_execution_mode, ExecutionMode
+from core.governed_runtime_composition import (
+    GovernedRuntimeComposition,
+    load_runtime_composition_config,
+)
 from executor.mock_executor import MockExecutor
 from core.risk.risk_manager import RiskManager
 from core.radar.market_radar_engine import MarketRadarEngine
@@ -36,9 +40,19 @@ from core.notifications.telegram_notifier import TelegramNotifier
 def run():
     load_dotenv()
 
+    # Governed boot is the first runtime decision. Its result is immutable,
+    # and operational effects remain blocked even when infrastructure is ready.
+    composition = GovernedRuntimeComposition(load_runtime_composition_config())
+    boot_result = composition.boot()
+
     print("\n===================================")
     print("   H&A HEADLESS FULL ENGINE")
     print("===================================\n")
+    print("[HEADLESS GOVERNED BOOT]")
+    print(f"posture={boot_result.posture}")
+    print(f"reason={boot_result.reason}")
+    print(f"operational_effects_blocked={boot_result.operational_effects_blocked}")
+    print(f"execution_authority={boot_result.execution_authority}")
 
     # ========================================================
     # MODE
@@ -157,7 +171,10 @@ def run():
 
     notifier.send("🚀 H&A HEADLESS iniciado com sucesso")
 
-    auto_loop.start()
+    try:
+        auto_loop.start()
+    finally:
+        composition.close()
 
 
 if __name__ == "__main__":

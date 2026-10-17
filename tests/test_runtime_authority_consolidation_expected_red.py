@@ -100,6 +100,8 @@ def _controller(executor, slot, manager=None):
     controller._block_rejected_symbol = lambda *_args, **_kwargs: None
     controller._unblock_rejected_symbol = lambda *_args, **_kwargs: None
     controller._last_buy_ts = 0.0
+    controller.operational_effects_blocked = False
+    controller._operational_containment_events = []
     controller.trade_history = []
     controller.profit_today = 0.0
     controller.profit_total = 0.0
@@ -328,3 +330,132 @@ def test_a09_non_execution_fact_cannot_mutate_slot_quantity():
         "non-ExecutionFact result mutated slot.quantity: "
         f"{violations}"
     )
+
+
+def test_a10_2b7_missing_runtime_wiring_fails_closed_before_executor():
+    class TrackingExecutor(_LegacyExecutor):
+        def __init__(self):
+            super().__init__(buy_result=object())
+            self.buy_calls = 0
+
+        def execute_buy(self, signal):
+            self.buy_calls += 1
+            return super().execute_buy(signal)
+
+    slot = _slot(state="READY")
+    slot.pending_pre_execution_proposal = None
+    executor = TrackingExecutor()
+    controller = _controller(executor, slot)
+    controller.pre_execution_runtime_required = True
+
+    controller._execute_buy(slot)
+
+    assert executor.buy_calls == 0
+    assert slot.state == "IDLE"
+    assert slot.pending_buy_signal is None
+    assert controller._operational_containment_events == [
+        {
+            "operation": "BUY",
+            "symbol": "BTCUSDC",
+            "slot_id": slot.slot_id,
+            "status": "CONTAINED",
+            "outcome": "AUTHORITY_UNAVAILABLE",
+            "reason": "GOVERNED_APPLICATION_AUTHORITY_UNAVAILABLE",
+            "no_effect": True,
+        }
+    ]
+    assert "BTCUSDC" not in controller.symbol_execution_lock
+
+
+def test_a11_2b7_recorded_allow_does_not_reach_executor():
+    class TrackingExecutor(_LegacyExecutor):
+        def __init__(self):
+            super().__init__(buy_result=object())
+            self.buy_calls = 0
+
+        def execute_buy(self, signal):
+            self.buy_calls += 1
+            return super().execute_buy(signal)
+
+    class RecordedAllowCoordinator:
+        def evaluate(self, _proposal):
+            return types.SimpleNamespace(disposition="RECORDED_ALLOW")
+
+    slot = _slot(state="READY")
+    slot.pending_pre_execution_proposal = object()
+    executor = TrackingExecutor()
+    controller = _controller(executor, slot)
+    controller.operational_effects_blocked = True
+    controller.pre_execution_runtime_required = True
+    controller.pre_execution_runtime_coordinator = RecordedAllowCoordinator()
+
+    controller._execute_buy(slot)
+
+    assert executor.buy_calls == 0
+    assert controller.operational_effects_blocked is True
+    assert slot.state == "IDLE"
+    assert slot.pending_buy_signal is None
+    assert slot.pending_pre_execution_proposal is None
+    assert controller._operational_containment_events[0]["operation"] == "BUY"
+    assert controller._operational_containment_events[0]["status"] == "CONTAINED"
+    assert controller._operational_containment_events[0]["no_effect"] is True
+
+
+@pytest.mark.parametrize(
+    "disposition",
+    ["OBSERVE_ONLY_NOT_EVALUATED", "CANNOT_EVALUATE"],
+)
+def test_a12_runtime_result_telemetry_is_truthful_and_contained(
+    disposition, capsys
+):
+    class TrackingExecutor(_LegacyExecutor):
+        def __init__(self):
+            super().__init__(buy_result=object())
+            self.buy_calls = 0
+
+        def execute_buy(self, signal):
+            self.buy_calls += 1
+            return super().execute_buy(signal)
+
+    class ResultCoordinator:
+        def evaluate(self, _proposal):
+            return types.SimpleNamespace(disposition=disposition)
+
+    slot = _slot(state="READY")
+    slot.pending_pre_execution_proposal = object()
+    executor = TrackingExecutor()
+    controller = _controller(executor, slot)
+    controller.operational_effects_blocked = True
+    controller.pre_execution_runtime_required = True
+    controller.pre_execution_runtime_coordinator = ResultCoordinator()
+
+    controller._execute_buy(slot)
+    output = capsys.readouterr().out
+
+    assert "stage=PRE_EXECUTION_RUNTIME_RESULT" in output
+    assert "stage=PRE_EXECUTION_DECISION_RECORDED" not in output
+    assert f"disposition={disposition}" in output
+    assert "no_effect=True" in output
+    assert executor.buy_calls == 0
+    assert controller.operational_effects_blocked is True
+
+
+def test_a13_missing_effects_state_fails_closed_for_buy_and_sell():
+    buy_slot = _slot(state="READY")
+    buy_executor = _LegacyExecutor(buy_result=object())
+    buy_controller = _controller(buy_executor, buy_slot)
+    del buy_controller.operational_effects_blocked
+
+    buy_controller._execute_buy(buy_slot)
+
+    assert buy_slot.state == "IDLE"
+    assert buy_controller._operational_containment_events[0]["operation"] == "BUY"
+
+    sell_slot = _slot(state="RUNNING")
+    sell_executor = _LegacyExecutor(sell_result=_legacy_sell_result())
+    sell_controller = _controller(sell_executor, sell_slot)
+    del sell_controller.operational_effects_blocked
+
+    sell_controller._execute_sell(sell_slot, reason="TEST")
+
+    assert sell_controller._operational_containment_events[0]["operation"] == "SELL"

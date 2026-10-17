@@ -21,6 +21,9 @@ from core.decision.decision_engine import MarketSnapshot
 from core.learning.adaptive_learning_observer import AdaptiveLearningObserver
 from core.notifications.telegram_notifier import TelegramNotifier
 from core.execution.execution_fact import ExecutionFact
+from core.execution.pre_execution_runtime_coordinator import (
+    PreExecutionRuntimeProposal,
+)
 
 
 class SlotController:
@@ -50,6 +53,8 @@ class SlotController:
         cooldown: float = 2.0,
         alo=None,
         operational_effects_blocked: bool = False,
+        pre_execution_runtime_coordinator=None,
+        pre_execution_runtime_required: bool = False,
     ):
         self.symbol = symbol
         self.cooldown = cooldown
@@ -84,6 +89,8 @@ class SlotController:
         self._restart_diagnostics = []
         self._restart_entries_blocked = False
         self.operational_effects_blocked = bool(operational_effects_blocked)
+        self.pre_execution_runtime_coordinator = pre_execution_runtime_coordinator
+        self.pre_execution_runtime_required = bool(pre_execution_runtime_required)
         self._operational_containment_events = []
 
         # SLOTS
@@ -2296,7 +2303,20 @@ class SlotController:
                         f"symbol={symbol} | no_effect=True"
                     )
 
-                    approved_candidates.append((symbol, signal))
+                    try:
+                        proposal = PreExecutionRuntimeProposal.from_buy_signal(
+                            snapshot, signal
+                        )
+                    except Exception as exc:
+                        print(
+                            f"[BUY TRACE] stage=PRE_EXECUTION_PROPOSAL_BLOCKED | "
+                            f"symbol={symbol} | reason={exc} | no_effect=True"
+                        )
+                        self.symbol_execution_lock.discard(symbol)
+                        pairs_in_use.discard(symbol)
+                        continue
+
+                    approved_candidates.append((symbol, signal, proposal))
 
                 else:
 
@@ -2449,10 +2469,11 @@ class SlotController:
                 if candidate_index >= len(approved_candidates):
                     continue
 
-                symbol, signal = approved_candidates[candidate_index]
+                symbol, signal, proposal = approved_candidates[candidate_index]
 
                 slot.pair = symbol
                 slot.pending_buy_signal = signal
+                slot.pending_pre_execution_proposal = proposal.bind_slot(str(slot.slot_id))
                 print(
                     f"[BUY TRACE] stage=SLOT_ASSIGNED | symbol={symbol} | "
                     f"slot_id={slot.slot_id} | state={slot.state} | no_effect=True"
@@ -2607,7 +2628,44 @@ class SlotController:
         executor_accepted = False
 
         try:
-            if self.operational_effects_blocked:
+            runtime_coordinator = getattr(
+                self, "pre_execution_runtime_coordinator", None
+            )
+            proposal = getattr(slot, "pending_pre_execution_proposal", None)
+            runtime_required = bool(
+                getattr(self, "pre_execution_runtime_required", False)
+            )
+            if runtime_coordinator is None or proposal is None:
+                print(
+                    f"[BUY TRACE] stage=PRE_EXECUTION_RUNTIME_BLOCKED | "
+                    f"symbol={getattr(slot, 'pair', None) or 'UNKNOWN'} | "
+                    f"slot_id={slot.slot_id} | reason=RUNTIME_WIRING_MISSING | "
+                    f"no_effect=True"
+                )
+                if runtime_required:
+                    return self._contain_pre_execution_buy(slot)
+            else:
+                try:
+                    runtime_result = runtime_coordinator.evaluate(proposal)
+                    print(
+                        f"[BUY TRACE] stage=PRE_EXECUTION_RUNTIME_RESULT | "
+                        f"symbol={getattr(slot, 'pair', None) or 'UNKNOWN'} | "
+                        f"slot_id={slot.slot_id} | disposition="
+                        f"{runtime_result.disposition} | no_effect=True"
+                    )
+                except Exception as exc:
+                    print(
+                        f"[BUY TRACE] stage=PRE_EXECUTION_RUNTIME_FAILURE | "
+                        f"symbol={getattr(slot, 'pair', None) or 'UNKNOWN'} | "
+                        f"slot_id={slot.slot_id} | reason={exc} | no_effect=True"
+                    )
+                    if runtime_required:
+                        return self._contain_pre_execution_buy(slot)
+
+            if (
+                not hasattr(self, "operational_effects_blocked")
+                or self.operational_effects_blocked
+            ):
                 return self._contain_pre_execution_buy(slot)
 
             if not self.client or not self.executor:
@@ -2882,7 +2940,10 @@ class SlotController:
     def _execute_sell(self, slot, reason=CloseReason.MANUAL):
 
         try:
-            if self.operational_effects_blocked:
+            if (
+                not hasattr(self, "operational_effects_blocked")
+                or self.operational_effects_blocked
+            ):
                 return self._contain_pre_execution_sell(slot)
 
             if not self.executor or not self.client:

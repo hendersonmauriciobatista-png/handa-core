@@ -11,6 +11,7 @@ from core.execution.live_order_models import LiveOrderIntent, OrderSide
 from core.persistence.live_order_store import (
     LiveOrderStore,
     live_order_resource_scope,
+    pre_execution_lineage_resource_scope,
 )
 from core.persistence.persistence_coordinator import (
     DatabaseIdentity,
@@ -136,6 +137,21 @@ def _prepare(store, intent_id, client_order_id, expected_version=0):
     )
 
 
+def _narrow_lineage_store():
+    database_url = os.environ["TEST_DATABASE_URL"]
+    coordinator = PersistenceCoordinator(
+        database_url,
+        DatabaseIdentity(
+            allowed_hosts=frozenset(EXPECTED_HOSTS),
+            port=EXPECTED_PORT,
+            database=EXPECTED_DATABASE,
+            user=EXPECTED_USER,
+        ),
+        resource_scope=pre_execution_lineage_resource_scope(),
+    )
+    return coordinator, LiveOrderStore(coordinator)
+
+
 def _handoff(store, intent_id, expected_version):
     return store.record_external_handoff(
         intent_id=intent_id,
@@ -205,6 +221,264 @@ def test_pre_submit_and_unknown_boundary(store_and_connection):
             ("intent-1",),
         )
         assert cursor.fetchone() == ("UNKNOWN", "PENDING")
+
+
+def test_pre_execution_lineage_is_atomic_and_replay_safe(store_and_connection):
+    _, connection = store_and_connection
+    coordinator, store = _narrow_lineage_store()
+    intent = _intent("lineage-1", "lineage-client")
+    try:
+        first = store.ensure_pre_execution_lineage(
+            intent=intent,
+            venue="BINANCE_SPOT",
+            account_scope="test-account",
+            attempt_id="lineage-attempt-1",
+        )
+        second = store.ensure_pre_execution_lineage(
+            intent=intent,
+            venue="BINANCE_SPOT",
+            account_scope="test-account",
+            attempt_id="lineage-attempt-1",
+        )
+    finally:
+        coordinator.close()
+
+    assert first.intent["submission_lifecycle_state"] == "SUBMISSION_ATTEMPTED"
+    assert first.attempt["submission_lifecycle_state"] == "SUBMISSION_ATTEMPTED"
+    assert second.intent["intent_id"] == first.intent["intent_id"]
+    assert second.attempt["attempt_id"] == first.attempt["attempt_id"]
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM handa_live.order_intent")
+        assert cursor.fetchone()[0] == 1
+        cursor.execute("SELECT COUNT(*) FROM handa_live.submission_attempt")
+        assert cursor.fetchone()[0] == 1
+
+
+def test_pre_execution_lineage_scope_is_read_only_for_reconciliation_and_external_fields():
+    scope = pre_execution_lineage_resource_scope()
+    intent_spec = scope.resolve("order_intent")
+    attempt_spec = scope.resolve("submission_attempt")
+
+    assert "execution_certainty" not in intent_spec.writable_columns
+    assert "reconciliation_state" not in intent_spec.writable_columns
+    assert "execution_certainty" in intent_spec.readable_columns
+    assert "reconciliation_state" in intent_spec.readable_columns
+    assert {"transport_error", "observed_at", "exchange_event_time"}.issubset(
+        attempt_spec.readable_columns
+    )
+    assert not {
+        "exchange_order_id", "transport_status", "transport_error",
+        "observed_at", "exchange_event_time",
+    }.intersection(attempt_spec.writable_columns)
+
+
+def test_pre_execution_lineage_recovers_intent_only_ready_state(store_and_connection):
+    _, connection = store_and_connection
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO handa_live.order_intent (
+                intent_id, venue, account_scope, client_order_id, slot_id,
+                symbol, side, requested_quote_amount, policy_context,
+                submission_lifecycle_state
+            ) VALUES (%s, %s, %s, %s, %s, %s, 'BUY', %s, %s, 'READY_TO_SUBMIT')
+            """,
+            (
+                "intent-only-recovery", "BINANCE_SPOT", "test-account",
+                "client-only-recovery", "slot-intent-only-recovery", "BTCUSDC",
+                Decimal("10.00000000"), "test-policy",
+            ),
+        )
+    connection.commit()
+    coordinator, store = _narrow_lineage_store()
+    try:
+        result = store.ensure_pre_execution_lineage(
+            intent=_intent("intent-only-recovery", "client-only-recovery"),
+            venue="BINANCE_SPOT",
+            account_scope="test-account",
+            attempt_id="attempt-only-recovery",
+        )
+    finally:
+        coordinator.close()
+
+    assert result.intent["submission_lifecycle_state"] == "SUBMISSION_ATTEMPTED"
+    assert result.attempt["attempt_id"] == "attempt-only-recovery"
+
+
+def test_pre_execution_lineage_rejects_same_intent_id_semantic_conflict(
+    store_and_connection,
+):
+    _, connection = store_and_connection
+    coordinator, store = _narrow_lineage_store()
+    try:
+        store.ensure_pre_execution_lineage(
+            intent=_intent("same-intent", "same-intent-client"),
+            venue="BINANCE_SPOT", account_scope="test-account",
+            attempt_id="same-intent-attempt",
+        )
+        with pytest.raises(ValueError, match="intent identity conflict"):
+            store.ensure_pre_execution_lineage(
+                intent=_intent("same-intent", "same-intent-client", symbol="ETHUSDC"),
+                venue="BINANCE_SPOT", account_scope="test-account",
+                attempt_id="same-intent-attempt",
+            )
+    finally:
+        coordinator.close()
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT symbol FROM handa_live.order_intent WHERE intent_id = %s",
+            ("same-intent",),
+        )
+        assert cursor.fetchone() == ("BTCUSDC",)
+
+
+def test_pre_execution_lineage_rejects_same_attempt_id_semantic_conflict(
+    store_and_connection,
+):
+    _, connection = store_and_connection
+    coordinator, store = _narrow_lineage_store()
+    try:
+        store.ensure_pre_execution_lineage(
+            intent=_intent("attempt-one", "attempt-one-client"),
+            venue="BINANCE_SPOT", account_scope="test-account",
+            attempt_id="shared-attempt-id",
+        )
+        with pytest.raises(ValueError, match="attempt identity conflict"):
+            store.ensure_pre_execution_lineage(
+                intent=_intent("attempt-two", "attempt-two-client"),
+                venue="BINANCE_SPOT", account_scope="test-account",
+                attempt_id="shared-attempt-id",
+            )
+    finally:
+        coordinator.close()
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM handa_live.order_intent")
+        assert cursor.fetchone() == (1,)
+
+
+def test_pre_execution_lineage_rejects_may_have_been_submitted_conflict(
+    store_and_connection,
+):
+    _, connection = store_and_connection
+    coordinator, store = _narrow_lineage_store()
+    try:
+        store.ensure_pre_execution_lineage(
+            intent=_intent("may-have", "may-have-client"),
+            venue="BINANCE_SPOT", account_scope="test-account",
+            attempt_id="may-have-attempt",
+        )
+    finally:
+        coordinator.close()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE handa_live.order_intent
+            SET submission_lifecycle_state = 'MAY_HAVE_BEEN_SUBMITTED',
+                execution_certainty = 'UNKNOWN',
+                reconciliation_state = 'PENDING'
+            WHERE intent_id = %s
+            """,
+            ("may-have",),
+        )
+    connection.commit()
+
+    coordinator, store = _narrow_lineage_store()
+    try:
+        with pytest.raises(
+            ValueError,
+            match="beyond local submission boundary|execution certainty",
+        ):
+            store.ensure_pre_execution_lineage(
+                intent=_intent("may-have", "may-have-client"),
+                venue="BINANCE_SPOT", account_scope="test-account",
+                attempt_id="may-have-attempt",
+            )
+    finally:
+        coordinator.close()
+
+
+@pytest.mark.parametrize(
+    "external_field, assignment",
+    [
+        ("exchange_order_id", "exchange_order_id = 'exchange-1'"),
+        ("transport_status", "transport_status = 'TIMEOUT'"),
+        ("transport_error", "transport_error = '{\"error\":\"timeout\"}'::jsonb"),
+        ("observed_at", "observed_at = CURRENT_TIMESTAMP"),
+        ("exchange_event_time", "exchange_event_time = CURRENT_TIMESTAMP"),
+    ],
+)
+def test_pre_execution_lineage_rejects_each_external_attempt_field(
+    store_and_connection, external_field, assignment
+):
+    _, connection = store_and_connection
+    coordinator, store = _narrow_lineage_store()
+    try:
+        store.ensure_pre_execution_lineage(
+            intent=_intent("external-field", "external-field-client"),
+            venue="BINANCE_SPOT", account_scope="test-account",
+            attempt_id="external-field-attempt",
+        )
+    finally:
+        coordinator.close()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"UPDATE handa_live.submission_attempt SET {assignment} "
+            "WHERE attempt_id = %s",
+            ("external-field-attempt",),
+        )
+    connection.commit()
+
+    coordinator, store = _narrow_lineage_store()
+    try:
+        with pytest.raises(ValueError, match="external transport state"):
+            store.ensure_pre_execution_lineage(
+                intent=_intent("external-field", "external-field-client"),
+                venue="BINANCE_SPOT", account_scope="test-account",
+                attempt_id="external-field-attempt",
+            )
+    finally:
+        coordinator.close()
+
+
+@pytest.mark.parametrize("field", ["execution_certainty", "reconciliation_state"])
+def test_pre_execution_lineage_rejects_non_null_reconciliation_fields(
+    store_and_connection, field
+):
+    _, connection = store_and_connection
+    coordinator, store = _narrow_lineage_store()
+    try:
+        store.ensure_pre_execution_lineage(
+            intent=_intent("reconciliation-field", "reconciliation-field-client"),
+            venue="BINANCE_SPOT", account_scope="test-account",
+            attempt_id="reconciliation-field-attempt",
+        )
+    finally:
+        coordinator.close()
+    assignment = (
+        "execution_certainty = 'NO_EFFECT_CONFIRMED', "
+        "reconciliation_state = 'RESOLVED'"
+        if field == "execution_certainty"
+        else "reconciliation_state = 'PENDING'"
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"UPDATE handa_live.order_intent SET {assignment} WHERE intent_id = %s",
+            ("reconciliation-field",),
+        )
+    connection.commit()
+
+    coordinator, store = _narrow_lineage_store()
+    try:
+        with pytest.raises(ValueError, match="reconciliation|execution certainty"):
+            store.ensure_pre_execution_lineage(
+                intent=_intent("reconciliation-field", "reconciliation-field-client"),
+                venue="BINANCE_SPOT", account_scope="test-account",
+                attempt_id="reconciliation-field-attempt",
+            )
+    finally:
+        coordinator.close()
 
 
 def test_unknown_cannot_be_reprepared_or_cleared(store_and_connection):

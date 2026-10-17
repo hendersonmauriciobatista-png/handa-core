@@ -39,6 +39,7 @@ class Slot:
 
         self.analysis_strength = None
         self.pair = None
+        self.pending_pre_execution_proposal = None
 
         # -------------------------------------------------
         # DADOS DO TRADE
@@ -73,6 +74,7 @@ class Slot:
         self.entry_price = None
         self.exit_price = None
         self.quantity = None
+        self.pending_pre_execution_proposal = None
         self._analysis_ticks = 0
 
     # =====================================================

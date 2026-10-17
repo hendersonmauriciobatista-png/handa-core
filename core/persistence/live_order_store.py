@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from psycopg2.extras import Json
@@ -13,6 +14,7 @@ from core.persistence.transaction_context import (
     ImmutablePage,
     ImmutableRow,
     InvalidCapabilityRequest,
+    UniqueConflict,
     Predicate,
     PredicateOperator,
     ResourceScope,
@@ -282,6 +284,61 @@ def live_order_resource_scope() -> ResourceScope:
     )
 
 
+_LINEAGE_ORDER_COLUMNS = (
+    "intent_id", "venue", "account_scope", "client_order_id", "slot_id",
+    "symbol", "side", "requested_quote_amount", "requested_base_qty",
+    "policy_context", "submission_lifecycle_state", "execution_certainty",
+    "reconciliation_state", "exchange_order_id", "current_version",
+)
+
+_LINEAGE_ATTEMPT_COLUMNS = (
+    "attempt_id", "intent_id", "attempt_sequence", "venue", "context_id",
+    "account_scope", "client_order_id", "submission_lifecycle_state",
+    "exchange_order_id", "transport_status", "transport_error", "observed_at",
+    "exchange_event_time",
+)
+
+
+def pre_execution_lineage_resource_scope() -> ResourceScope:
+    """Return the coordinator's narrow pre-send lineage capability."""
+
+    order_intent = ResourceSpec(
+        schema=LIVE_SCHEMA,
+        table="order_intent",
+        readable_columns=frozenset(_LINEAGE_ORDER_COLUMNS),
+        writable_columns=frozenset(
+            {
+                "intent_id", "venue", "account_scope", "client_order_id", "slot_id",
+                "symbol", "side", "requested_quote_amount", "requested_base_qty",
+                "policy_context", "submission_lifecycle_state", "current_version",
+            }
+        ),
+        key_columns=frozenset({"intent_id"}),
+        ordering_columns=("intent_id",),
+        version_column="current_version",
+    )
+    submission_attempt = ResourceSpec(
+        schema=LIVE_SCHEMA,
+        table="submission_attempt",
+        readable_columns=frozenset(_LINEAGE_ATTEMPT_COLUMNS),
+        writable_columns=frozenset(
+            {
+                "attempt_id", "intent_id", "attempt_sequence", "venue", "context_id",
+                "account_scope", "client_order_id", "submission_lifecycle_state",
+            }
+        ),
+        key_columns=frozenset({"attempt_id"}),
+        ordering_columns=("attempt_sequence", "attempt_id"),
+    )
+    return ResourceScope((order_intent, submission_attempt))
+
+
+@dataclass(frozen=True)
+class PreExecutionLineage:
+    intent: ImmutableRow
+    attempt: ImmutableRow
+
+
 class LiveOrderStore:
     """Semantic Store using coordinator-owned structured transactions only."""
 
@@ -311,6 +368,121 @@ class LiveOrderStore:
                 "order_intent", values, _ORDER_COLUMNS
             )
         )
+
+    def ensure_pre_execution_lineage(
+        self,
+        *,
+        intent: LiveOrderIntent,
+        venue: str,
+        account_scope: str,
+        attempt_id: str,
+        attempt_sequence: int = 1,
+        context_id: Optional[str] = None,
+    ) -> PreExecutionLineage:
+        """Create or replay the local pre-send intent/attempt atomically.
+
+        This boundary deliberately stops at ``SUBMISSION_ATTEMPTED``.  It has
+        no write capability for exchange, transport, reconciliation, or
+        execution-effect records.
+        """
+
+        if attempt_sequence != 1:
+            raise InvalidCapabilityRequest(
+                "pre-execution lineage requires attempt_sequence=1"
+            )
+
+        def operation(context):
+            current = context.read_by_key_for_update(
+                "order_intent", {"intent_id": intent.intent_id}, _LINEAGE_ORDER_COLUMNS
+            )
+            intent_values = {
+                "intent_id": intent.intent_id,
+                "venue": venue,
+                "account_scope": account_scope,
+                "client_order_id": intent.client_order_id,
+                "slot_id": intent.slot_id,
+                "symbol": intent.symbol,
+                "side": intent.side.value,
+                "requested_quote_amount": intent.requested_quote_amount,
+                "requested_base_qty": intent.requested_base_qty,
+                "policy_context": intent.policy_context,
+                "submission_lifecycle_state": "READY_TO_SUBMIT",
+            }
+            if current is None:
+                current = context.insert_returning(
+                    "order_intent", intent_values, _LINEAGE_ORDER_COLUMNS
+                )
+            else:
+                expected = dict(intent_values)
+                expected.pop("submission_lifecycle_state")
+                if any(current[column] != value for column, value in expected.items()):
+                    raise ValueError("pre-execution intent identity conflict")
+                if current["exchange_order_id"] is not None:
+                    raise ValueError("pre-execution intent has external order identity")
+                if current["execution_certainty"] is not None:
+                    raise ValueError("pre-execution intent has execution certainty")
+                if current["reconciliation_state"] is not None:
+                    raise ValueError("pre-execution intent has reconciliation state")
+                if current["submission_lifecycle_state"] not in {
+                    "READY_TO_SUBMIT", "SUBMISSION_ATTEMPTED"
+                }:
+                    raise ValueError("pre-execution intent is beyond local submission boundary")
+
+            attempt = context.read_by_key_for_update(
+                "submission_attempt", {"attempt_id": attempt_id}, _LINEAGE_ATTEMPT_COLUMNS
+            )
+            attempt_values = {
+                "attempt_id": attempt_id,
+                "intent_id": intent.intent_id,
+                "attempt_sequence": attempt_sequence,
+                "context_id": context_id,
+                "venue": venue,
+                "account_scope": account_scope,
+                "client_order_id": intent.client_order_id,
+                "submission_lifecycle_state": "SUBMISSION_ATTEMPTED",
+            }
+            if attempt is None:
+                if current["submission_lifecycle_state"] == "SUBMISSION_ATTEMPTED":
+                    raise ValueError("pre-execution attempt missing from attempted intent")
+                context.insert("submission_attempt", attempt_values)
+                attempt = context.read_by_key(
+                    "submission_attempt", {"attempt_id": attempt_id}, _LINEAGE_ATTEMPT_COLUMNS
+                )
+                if attempt is None:
+                    raise ValueError("pre-execution attempt was not persisted")
+            else:
+                for column, value in attempt_values.items():
+                    if attempt[column] != value:
+                        raise ValueError("pre-execution attempt identity conflict")
+                if (
+                    attempt["exchange_order_id"] is not None
+                    or attempt["transport_status"] is not None
+                    or attempt["transport_error"] is not None
+                    or attempt["observed_at"] is not None
+                    or attempt["exchange_event_time"] is not None
+                ):
+                    raise ValueError("pre-execution attempt has external transport state")
+                if attempt["submission_lifecycle_state"] != "SUBMISSION_ATTEMPTED":
+                    raise ValueError("pre-execution attempt is beyond local boundary")
+
+            if current["submission_lifecycle_state"] == "READY_TO_SUBMIT":
+                current = context.update_if_version(
+                    "order_intent",
+                    {"intent_id": intent.intent_id},
+                    current["current_version"],
+                    {
+                        "submission_lifecycle_state": "SUBMISSION_ATTEMPTED",
+                    },
+                    _LINEAGE_ORDER_COLUMNS,
+                )
+            return PreExecutionLineage(intent=current, attempt=attempt)
+
+        try:
+            return self._run(operation)
+        except UniqueConflict:
+            # A concurrent identical proposal may win the unique insert.  A
+            # single bounded reread/replay is sufficient and fail-closed.
+            return self._run(operation)
 
     def record_submission_preparation(
         self,

@@ -23,6 +23,9 @@ from core.governed_runtime_composition import (
     GovernedRuntimeComposition,
     load_runtime_composition_config,
 )
+from core.execution.pre_execution_runtime_coordinator import (
+    PreExecutionRuntimeCoordinator,
+)
 from executor.mock_executor import MockExecutor
 from core.risk.risk_manager import RiskManager
 from core.radar.market_radar_engine import MarketRadarEngine
@@ -42,8 +45,12 @@ def run():
 
     # Governed boot is the first runtime decision. Its result is immutable,
     # and operational effects remain blocked even when infrastructure is ready.
-    composition = GovernedRuntimeComposition(load_runtime_composition_config())
+    runtime_config = load_runtime_composition_config()
+    composition = GovernedRuntimeComposition(runtime_config)
     boot_result = composition.boot()
+    pre_execution_runtime_coordinator = PreExecutionRuntimeCoordinator(
+        runtime_config, boot_result
+    )
 
     print("\n===================================")
     print("   H&A HEADLESS FULL ENGINE")
@@ -138,6 +145,8 @@ def run():
         executor=executor,
         risk_manager=risk_manager,
         operational_effects_blocked=True,
+        pre_execution_runtime_coordinator=pre_execution_runtime_coordinator,
+        pre_execution_runtime_required=True,
     )
 
     slot_controller.alo = alo
@@ -174,6 +183,7 @@ def run():
     try:
         auto_loop.start()
     finally:
+        pre_execution_runtime_coordinator.close()
         composition.close()
 
 

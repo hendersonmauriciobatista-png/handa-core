@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any, Mapping
 
 from core.decision.decision_engine import BuySignal, MarketSnapshot
 from core.execution.authority_digest import (
@@ -43,6 +44,7 @@ class PreExecutionCandidateEvidence:
     market_snapshot_digest: str
     strategy_decision_digest: str
     produced_at: datetime
+    provenance: Mapping[str, Any] = field(default_factory=dict, compare=False)
 
     def __post_init__(self) -> None:
         symbol = _normalize_symbol(self.symbol)
@@ -58,6 +60,7 @@ class PreExecutionCandidateEvidence:
         object.__setattr__(self, "symbol", symbol)
         object.__setattr__(self, "reason_codes", tuple(str(reason) for reason in self.reason_codes))
         object.__setattr__(self, "produced_at", produced_at)
+        object.__setattr__(self, "provenance", dict(self.provenance or {}))
         expected_id = f"candidate-{self.evidence_digest}"
         if self.candidate_id != expected_id:
             raise ValueError("candidate_id must be derived from canonical evidence")
@@ -114,4 +117,17 @@ class PreExecutionCandidateEvidence:
             "strategy_decision_digest_value": unsigned["strategy_decision_digest"],
             "produced_at": unsigned["produced_at"],
         })
-        return cls(candidate_id=f"candidate-{evidence_digest}", **unsigned)
+        provenance = dict(getattr(snapshot, "_governed_provenance", {}) or {})
+        provenance.pop("static_manifest_references", None)
+        decision_dynamic_evidence = getattr(
+            signal, "pre_execution_dynamic_evidence", None
+        )
+        if decision_dynamic_evidence:
+            provenance["decision_dynamic_evidence"] = dict(
+                decision_dynamic_evidence
+            )
+        return cls(
+            candidate_id=f"candidate-{evidence_digest}",
+            provenance=provenance,
+            **unsigned,
+        )

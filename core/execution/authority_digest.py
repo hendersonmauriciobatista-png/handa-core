@@ -72,6 +72,18 @@ def sha256_digest(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def canonical_manifest_digest(payload: Mapping[str, Any]) -> str:
+    """Digest one versioned, secret-free approved manifest payload."""
+
+    return sha256_digest(payload)
+
+
+def canonical_semantic_digest(payload: Mapping[str, Any]) -> str:
+    """Digest the immutable semantic identity of a candidate artifact."""
+
+    return sha256_digest(payload)
+
+
 def market_snapshot_digest(snapshot: Any) -> str:
     fields = (
         "pair", "price", "rsi", "ema_fast", "ema_slow", "volume_ratio",

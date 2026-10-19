@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional, List
+from typing import Any, Mapping, Optional, List
 
 from core.dynamic_policy.dynamic_policy_core import DynamicPolicyCore
 from core.dynamic_policy.lc1_feedback_adapter import LC1FeedbackAdapter
@@ -19,6 +19,7 @@ from core.alo_decision import AloDecisionLayer, AloDecisionMode
 from core.alo_decision.constitutional_observatory import ALOConstitutionalObservatory
 from core.alo.dynamic_core_adapter import AloDynamicCoreAdapter
 from core.alo.dynamic_core_engine import AloDynamicCoreEngine
+from core.execution.authority_digest import sha256_digest
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ class BuySignal:
     confidence: float
     reasons: List[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.utcnow)
+    pre_execution_dynamic_evidence: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -156,6 +158,80 @@ class DecisionEngine:
     # -------------------------------------------------------------------------
     # BUY
     # -------------------------------------------------------------------------
+
+    def _capture_pre_execution_dynamic_evidence(
+        self,
+        snapshot: MarketSnapshot,
+        signal: BuySignal,
+        *,
+        policy: Any,
+        risk_eval: Any,
+        allocation: Any = None,
+        debug_info: Any = None,
+        system_ctx: Any = None,
+    ) -> BuySignal:
+        """Capture the decision inputs already consumed by the live BUY path."""
+
+        provenance = dict(getattr(snapshot, "_governed_provenance", {}) or {})
+        market_observations = {
+            key: provenance.get(key)
+            for key in (
+                "source_group_identities",
+                "source_group_digests",
+                "source_group_intervals",
+                "source_group_constituent_digests",
+            )
+            if provenance.get(key) is not None
+        }
+        risk_values = {
+            key: getattr(risk_eval, key, None)
+            for key in (
+                "approved", "reason", "stop_loss_price", "take_profit_price",
+                "risk_reward_ratio", "expected_profit_pct",
+            )
+        }
+        policy_values = dict(vars(policy)) if hasattr(policy, "__dict__") else str(policy)
+        debug_values = dict(vars(debug_info)) if hasattr(debug_info, "__dict__") else str(debug_info)
+        allocation_values = {
+            key: getattr(allocation, key, None)
+            for key in ("approved", "allocated_usdc", "reason")
+        }
+        balance_values = {
+            "balance": getattr(system_ctx, "balance", None),
+            "allocation": allocation_values,
+            "source": "capital_allocator",
+        }
+        evidence = {
+            "market_observations": market_observations,
+            "regime_trend_momentum": {
+                "regime": getattr(policy, "regime", None),
+                "trend": getattr(snapshot, "trend", None),
+                "momentum": getattr(snapshot, "momentum", None),
+                "market_state": getattr(snapshot, "market_state", None),
+                "volume_state": getattr(snapshot, "volume_state", None),
+            },
+            "mqii_digest": sha256_digest(getattr(self, "mqii_quality", None)),
+            "rra_digest": sha256_digest(provenance.get("dynamic_policy_evidence", {})),
+            "balance_causal_reference": sha256_digest(balance_values),
+            "atr": float(snapshot.atr),
+            "entry_price": float(signal.entry_price),
+            "requested_quote": float(signal.allocated_usdc),
+            "effective_risk_result_digest": sha256_digest(risk_values),
+            "effective_policy_result_digest": sha256_digest(
+                {"policy": policy_values, "debug": debug_values}
+            ),
+            "ranking_selection_result_digest": sha256_digest(
+                {
+                    "market_score": snapshot.market_score,
+                    "selection_score": snapshot.selection_score,
+                    "liquidity_score": snapshot.liquidity_score,
+                    "policy": provenance.get("dynamic_policy_evidence", {}),
+                }
+            ),
+            "capture_point": signal.timestamp,
+        }
+        signal.pre_execution_dynamic_evidence = evidence
+        return signal
 
     def evaluate_buy(self, snapshot: MarketSnapshot) -> Optional[BuySignal]:
 
@@ -742,6 +818,10 @@ class DecisionEngine:
                     confidence=float(pre_confidence),
                     reasons=list(pre_reasons) + ["PRE_MOVEMENT_MODE"],
                 )
+                self._capture_pre_execution_dynamic_evidence(
+                    snapshot, signal, policy=policy, risk_eval=risk_eval,
+                    allocation=allocation, debug_info=debug_info, system_ctx=system_ctx,
+                )
 
                 logger.info(
                     f"[Engine] BUY PRÉ-MOVIMENTO {pair} | "
@@ -809,6 +889,10 @@ class DecisionEngine:
                     take_profit=float(risk_eval.take_profit_price),
                     confidence=float(qualifier_result.confidence),
                     reasons=list(qualifier_result.reasons) + ["OPPORTUNITY_MODE"],
+                )
+                self._capture_pre_execution_dynamic_evidence(
+                    snapshot, signal, policy=policy, risk_eval=risk_eval,
+                    allocation=allocation, debug_info=debug_info, system_ctx=system_ctx,
                 )
 
                 logger.info(
@@ -1237,6 +1321,10 @@ class DecisionEngine:
             take_profit=float(risk_eval.take_profit_price),
             confidence=float(final_confidence),
             reasons=signal_reasons,
+        )
+        self._capture_pre_execution_dynamic_evidence(
+            snapshot, signal, policy=policy, risk_eval=risk_eval,
+            allocation=allocation, debug_info=debug_info, system_ctx=system_ctx,
         )
 
         logger.info(

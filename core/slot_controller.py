@@ -12,6 +12,7 @@
 import copy
 import os
 import time
+from datetime import datetime, timezone
 from typing import List
 
 from core.slot import Slot
@@ -23,6 +24,10 @@ from core.notifications.telegram_notifier import TelegramNotifier
 from core.execution.execution_fact import ExecutionFact
 from core.execution.pre_execution_runtime_coordinator import (
     PreExecutionRuntimeProposal,
+)
+from core.market.governed_market_observation import (
+    TickerObservation,
+    append_ticker_constituent,
 )
 
 
@@ -1670,7 +1675,7 @@ class SlotController:
         except Exception:
             liquidity_score = 0.0
 
-        return MarketSnapshot(
+        snapshot = MarketSnapshot(
             pair=symbol,
             price=current_price,
             rsi=float(getattr(snapshot_obj, "rsi_14", 0.0)),
@@ -1686,6 +1691,22 @@ class SlotController:
             selection_score=selection_score,
             liquidity_score=liquidity_score,
         )
+        provenance = dict(opportunity.get("governed_provenance") or {})
+        ticker_observation = TickerObservation(
+            ticker_value=current_price,
+            application_receipt_at=datetime.now(timezone.utc),
+        )
+        provenance["ticker_value"] = ticker_observation.ticker_value
+        provenance["ticker_application_receipt_at"] = (
+            ticker_observation.application_receipt_at
+        )
+        provenance = append_ticker_constituent(
+            provenance,
+            symbol=symbol,
+            ticker_observation=ticker_observation,
+        )
+        setattr(snapshot, "_governed_provenance", provenance)
+        return snapshot
 
     # ========================================================
     # SELEÇÃO DE OPORTUNIDADE
@@ -2473,7 +2494,49 @@ class SlotController:
 
                 slot.pair = symbol
                 slot.pending_buy_signal = signal
-                slot.pending_pre_execution_proposal = proposal.bind_slot(str(slot.slot_id))
+                bound_proposal = proposal.bind_slot(str(slot.slot_id))
+                runtime_coordinator = getattr(
+                    self, "pre_execution_runtime_coordinator", None
+                )
+                runtime_required = bool(
+                    getattr(self, "pre_execution_runtime_required", False)
+                )
+                if runtime_required and (
+                    runtime_coordinator is None
+                    or not hasattr(runtime_coordinator, "persist_provenance_artifact")
+                ):
+                    pairs_in_use.discard(symbol)
+                    self._contain_pre_execution_buy(slot)
+                    candidate_index += 1
+                    continue
+                if runtime_coordinator is not None and hasattr(
+                    runtime_coordinator, "persist_provenance_artifact"
+                ):
+                    try:
+                        persisted_artifact = runtime_coordinator.persist_provenance_artifact(
+                            bound_proposal,
+                            require_complete=runtime_required,
+                        )
+                        if (
+                            runtime_required
+                            and persisted_artifact is None
+                        ):
+                            raise RuntimeError("provenance persistence returned no artifact")
+                    except Exception as exc:
+                        print(
+                            f"[BUY TRACE] stage=PRE_EXECUTION_PROVENANCE_BLOCKED | "
+                            f"symbol={symbol} | slot_id={slot.slot_id} | "
+                            f"reason={exc} | no_effect=True"
+                        )
+                        self.symbol_execution_lock.discard(symbol)
+                        pairs_in_use.discard(symbol)
+                        if runtime_required:
+                            self._contain_pre_execution_buy(slot)
+                        else:
+                            slot.pending_buy_signal = None
+                            slot.reset()
+                        continue
+                slot.pending_pre_execution_proposal = bound_proposal
                 print(
                     f"[BUY TRACE] stage=SLOT_ASSIGNED | symbol={symbol} | "
                     f"slot_id={slot.slot_id} | state={slot.state} | no_effect=True"

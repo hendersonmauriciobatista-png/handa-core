@@ -21,6 +21,9 @@ from core.persistence.authority_envelope_store import (
     AuthorityEnvelopeStore,
     authority_envelope_resource_scope,
 )
+from core.persistence.governance_artifact_manifest_store import (
+    governance_artifact_manifest_resource_scope,
+)
 from core.persistence.operational_authority_state_store import (
     OperationalAuthorityStateStore,
     operational_authority_state_resource_scope,
@@ -47,7 +50,7 @@ _MIGRATION_NAMES = tuple(
     for f in sorted(
         (Path(__file__).resolve().parent / "persistence" / "migrations").glob("*.sql")
     )
-    if f.name[:3].isdigit() and 1 <= int(f.name[:3]) <= 12
+    if f.name[:3].isdigit() and 1 <= int(f.name[:3]) <= 13
 )
 _TABLE_PATTERN = re.compile(
     r"CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+handa_live\.([a-z_][a-z0-9_]*)\s*\((.*?)\);",
@@ -96,6 +99,89 @@ EXPECTED_SCHEMA_CONSTRAINTS = frozenset(
     {
         "order_intent_may_have_been_certainty_ck",
         "order_intent_terminal_reconciliation_ck",
+        "governance_artifact_manifest_digest_uq",
+        "governance_artifact_manifest_validity_ck",
+        "governance_artifact_manifest_text_ck",
+        "pre_execution_provenance_digest_uq",
+        "pre_execution_provenance_text_ck",
+        "pre_execution_provenance_binding_ck",
+        "governance_artifact_manifest_pkey",
+        "pre_execution_provenance_artifact_pkey",
+        "governance_artifact_manifest_artifact_type_ck",
+        "pre_execution_provenance_artifact_side_ck",
+        "pre_execution_provenance_artifact_requested_quote_amount_ck",
+        "pre_execution_provenance_artifact_binding_status_ck",
+        "authority_envelope_strategy_manifest_id_fkey",
+        "authority_envelope_policy_manifest_id_fkey",
+        "authority_envelope_risk_manifest_id_fkey",
+        "authority_envelope_configuration_manifest_id_fkey",
+        "authority_envelope_freshness_manifest_id_fkey",
+        "pre_execution_provenance_artifact_strategy_manifest_id_fkey",
+        "pre_execution_provenance_artifact_policy_manifest_id_fkey",
+        "pre_execution_provenance_artifact_risk_manifest_id_fkey",
+        "pre_execution_provenance_configuration_manifest_id_fkey",
+        "pre_execution_provenance_artifact_freshness_manifest_id_fkey",
+    }
+)
+EXPECTED_SCHEMA_CONSTRAINT_SEMANTICS = {
+    "governance_artifact_manifest_pkey": ("primary key", "artifact_id"),
+    "pre_execution_provenance_artifact_pkey": (
+        "primary key", "provenance_artifact_id"
+    ),
+    "governance_artifact_manifest_artifact_type_ck": (
+        "artifact_type", "strategy", "policy", "risk", "configuration", "freshness"
+    ),
+    "pre_execution_provenance_artifact_side_ck": ("side", "buy"),
+    "pre_execution_provenance_artifact_requested_quote_amount_ck": (
+        "requested_quote_amount", ">", "0"
+    ),
+    "pre_execution_provenance_artifact_binding_status_ck": (
+        "binding_status", "bound", "unbound", "incomplete"
+    ),
+    "governance_artifact_manifest_digest_uq": (
+        "unique", "canonical_payload_digest"
+    ),
+    "governance_artifact_manifest_validity_ck": ("valid_from", "valid_until"),
+    "governance_artifact_manifest_text_ck": (
+        "artifact_id", "artifact_version", "approval_reason"
+    ),
+    "pre_execution_provenance_digest_uq": (
+        "unique", "canonical_semantic_digest"
+    ),
+    "pre_execution_provenance_text_ck": (
+        "provenance_artifact_id", "candidate_evidence_identity"
+    ),
+    "pre_execution_provenance_binding_ck": (
+        "binding_status", "strategy_manifest_id", "freshness_manifest_id"
+    ),
+}
+for _role in ("strategy", "policy", "risk", "configuration", "freshness"):
+    EXPECTED_SCHEMA_CONSTRAINT_SEMANTICS[
+        f"authority_envelope_{_role}_manifest_id_fkey"
+    ] = ("foreign key", f"{_role}_manifest_id", "governance_artifact_manifest")
+    EXPECTED_SCHEMA_CONSTRAINT_SEMANTICS[
+        (
+            "pre_execution_provenance_configuration_manifest_id_fkey"
+            if _role == "configuration"
+            else f"pre_execution_provenance_artifact_{_role}_manifest_id_fkey"
+        )
+    ] = ("foreign key", f"{_role}_manifest_id", "governance_artifact_manifest")
+EXPECTED_SCHEMA_013_INDEXES = frozenset(
+    {
+        "governance_artifact_manifest_type_validity_idx",
+        "pre_execution_provenance_symbol_recorded_idx",
+    }
+)
+EXPECTED_SCHEMA_013_TRIGGERS = frozenset(
+    {
+        "governance_artifact_manifest_immutability_guard",
+        "pre_execution_provenance_immutability_guard",
+    }
+)
+EXPECTED_SCHEMA_013_FUNCTIONS = frozenset(
+    {
+        "guard_governance_artifact_manifest_immutability",
+        "guard_pre_execution_provenance_immutability",
     }
 )
 
@@ -104,11 +190,17 @@ def _schema_digest(
     tables: set[str] | frozenset[str],
     columns: set[tuple[str, str]] | frozenset[tuple[str, str]],
     constraints: set[str] | frozenset[str] = frozenset(),
+    indexes: set[str] | frozenset[str] = frozenset(),
+    triggers: set[str] | frozenset[str] = frozenset(),
+    functions: set[str] | frozenset[str] = frozenset(),
 ) -> str:
     entries = [
         *(f"table:{table}" for table in sorted(tables)),
         *(f"column:{table}.{column}" for table, column in sorted(columns)),
         *(f"constraint:{constraint}" for constraint in sorted(constraints)),
+        *(f"index:{index}" for index in sorted(indexes)),
+        *(f"trigger:{trigger}" for trigger in sorted(triggers)),
+        *(f"function:{function}" for function in sorted(functions)),
     ]
     return hashlib.sha256("\n".join(entries).encode("utf-8")).hexdigest()
 
@@ -117,6 +209,9 @@ EXPECTED_SCHEMA_DIGEST = _schema_digest(
     EXPECTED_SCHEMA_TABLES,
     EXPECTED_SCHEMA_COLUMNS,
     EXPECTED_SCHEMA_CONSTRAINTS,
+    EXPECTED_SCHEMA_013_INDEXES,
+    EXPECTED_SCHEMA_013_TRIGGERS,
+    EXPECTED_SCHEMA_013_FUNCTIONS,
 )
 
 
@@ -131,6 +226,10 @@ class SchemaSignature:
     missing_constraints: tuple[str, ...] = ()
     extra_tables: tuple[str, ...] = ()
     extra_columns: tuple[tuple[str, str], ...] = ()
+    missing_indexes: tuple[str, ...] = ()
+    missing_triggers: tuple[str, ...] = ()
+    missing_functions: tuple[str, ...] = ()
+    invalid_constraint_semantics: tuple[str, ...] = ()
 
 
 def verify_final_schema_signature(connection: Any) -> SchemaSignature:
@@ -169,15 +268,78 @@ def verify_final_schema_signature(connection: Any) -> SchemaSignature:
         )
         constraints = {row[0] for row in cursor.fetchall()}
 
+        cursor.execute(
+            """
+            SELECT conname, pg_get_constraintdef(pg_constraint.oid)
+            FROM pg_constraint
+            JOIN pg_namespace
+              ON pg_namespace.oid = pg_constraint.connamespace
+            WHERE pg_namespace.nspname = 'handa_live'
+              AND conname = ANY(%s::text[])
+            ORDER BY conname
+            """,
+            (list(sorted(EXPECTED_SCHEMA_CONSTRAINTS)),),
+        )
+        constraint_definitions = {
+            row[0]: str(row[1]).lower() for row in cursor.fetchall()
+        }
+
+        cursor.execute(
+            """
+            SELECT indexname
+            FROM pg_indexes
+            WHERE schemaname = 'handa_live'
+            """
+        )
+        indexes = {row[0] for row in cursor.fetchall()}
+
+        cursor.execute(
+            """
+            SELECT tgname
+            FROM pg_trigger
+            JOIN pg_class ON pg_class.oid = pg_trigger.tgrelid
+            JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+            WHERE pg_namespace.nspname = 'handa_live' AND NOT pg_trigger.tgisinternal
+            """
+        )
+        triggers = {row[0] for row in cursor.fetchall()}
+
+        cursor.execute(
+            """
+            SELECT proname
+            FROM pg_proc
+            JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace
+            WHERE pg_namespace.nspname = 'handa_live'
+            """
+        )
+        functions = {row[0] for row in cursor.fetchall()}
+
     missing_tables = tuple(sorted(EXPECTED_SCHEMA_TABLES - tables))
     missing_columns = tuple(sorted(EXPECTED_SCHEMA_COLUMNS - columns))
     missing_constraints = tuple(sorted(EXPECTED_SCHEMA_CONSTRAINTS - constraints))
     extra_tables = tuple(sorted(tables - EXPECTED_SCHEMA_TABLES))
     extra_columns = tuple(sorted(columns - EXPECTED_SCHEMA_COLUMNS))
+    missing_indexes = tuple(sorted(EXPECTED_SCHEMA_013_INDEXES - indexes))
+    missing_triggers = tuple(sorted(EXPECTED_SCHEMA_013_TRIGGERS - triggers))
+    missing_functions = tuple(sorted(EXPECTED_SCHEMA_013_FUNCTIONS - functions))
+    invalid_constraint_semantics = tuple(
+        sorted(
+            name
+            for name, required_fragments in EXPECTED_SCHEMA_CONSTRAINT_SEMANTICS.items()
+            if name not in constraint_definitions
+            or not all(
+                fragment.lower() in constraint_definitions[name]
+                for fragment in required_fragments
+            )
+        )
+    )
     digest = _schema_digest(
         tables,
         columns,
         constraints & EXPECTED_SCHEMA_CONSTRAINTS,
+        indexes & EXPECTED_SCHEMA_013_INDEXES,
+        triggers & EXPECTED_SCHEMA_013_TRIGGERS,
+        functions & EXPECTED_SCHEMA_013_FUNCTIONS,
     )
     valid = not (
         missing_tables
@@ -185,6 +347,10 @@ def verify_final_schema_signature(connection: Any) -> SchemaSignature:
         or missing_constraints
         or extra_tables
         or extra_columns
+        or missing_indexes
+        or missing_triggers
+        or missing_functions
+        or invalid_constraint_semantics
     ) and digest == EXPECTED_SCHEMA_DIGEST
     return SchemaSignature(
         digest=digest,
@@ -194,6 +360,10 @@ def verify_final_schema_signature(connection: Any) -> SchemaSignature:
         missing_constraints=missing_constraints,
         extra_tables=extra_tables,
         extra_columns=extra_columns,
+        missing_indexes=missing_indexes,
+        missing_triggers=missing_triggers,
+        missing_functions=missing_functions,
+        invalid_constraint_semantics=invalid_constraint_semantics,
     )
 
 
@@ -202,6 +372,7 @@ def _combined_read_only_scope() -> ResourceScope:
         (
             *operational_authority_state_resource_scope().resources,
             *authority_envelope_resource_scope().resources,
+            *governance_artifact_manifest_resource_scope().resources,
         )
     )
 

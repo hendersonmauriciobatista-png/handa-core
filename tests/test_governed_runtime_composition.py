@@ -289,6 +289,20 @@ def test_expected_schema_catalog_contains_disputed_final_columns():
     assert required <= composition_module.EXPECTED_SCHEMA_COLUMNS
 
 
+def test_expected_schema_catalog_contains_2b8b_provenance_contract():
+    import core.governed_runtime_composition as composition_module
+
+    assert "013_pre_execution_provenance_artifact.sql" in composition_module._MIGRATION_NAMES, (
+        "EXPECTED_CONTRACT_RED::schema signature still stops at migration 012"
+    )
+    assert "governance_artifact_manifest" in composition_module.EXPECTED_SCHEMA_TABLES, (
+        "EXPECTED_CONTRACT_RED::governance manifest table is missing from schema catalog"
+    )
+    assert "pre_execution_provenance_artifact" in composition_module.EXPECTED_SCHEMA_TABLES, (
+        "EXPECTED_CONTRACT_RED::provenance artifact table is missing from schema catalog"
+    )
+
+
 def test_schema_signature_ignores_sequences_and_requires_frozen_markers():
     import core.governed_runtime_composition as composition_module
 
@@ -311,6 +325,20 @@ def test_schema_signature_ignores_sequences_and_requires_frozen_markers():
                 self.rows = list(composition_module.EXPECTED_SCHEMA_COLUMNS)
             elif "table_constraints" in statement:
                 self.rows = [(constraint,) for constraint in composition_module.EXPECTED_SCHEMA_CONSTRAINTS]
+            elif "pg_constraint" in statement:
+                self.rows = [
+                    (
+                        name,
+                        " ".join(fragments),
+                    )
+                    for name, fragments in composition_module.EXPECTED_SCHEMA_CONSTRAINT_SEMANTICS.items()
+                ]
+            elif "pg_indexes" in statement:
+                self.rows = [(index,) for index in composition_module.EXPECTED_SCHEMA_013_INDEXES]
+            elif "pg_trigger" in statement:
+                self.rows = [(trigger,) for trigger in composition_module.EXPECTED_SCHEMA_013_TRIGGERS]
+            elif "pg_proc" in statement:
+                self.rows = [(function,) for function in composition_module.EXPECTED_SCHEMA_013_FUNCTIONS]
             else:
                 raise AssertionError(f"unexpected metadata query: {statement}")
 
@@ -367,6 +395,46 @@ def test_schema_signature_fails_closed_on_required_marker_absence():
     assert set(signature.missing_constraints) == composition_module.EXPECTED_SCHEMA_CONSTRAINTS
 
 
+def test_schema_signature_fails_closed_when_013_safety_objects_are_missing():
+    import core.governed_runtime_composition as composition_module
+
+    class CatalogCursor:
+        def __init__(self):
+            self.rows = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return None
+
+        def execute(self, statement, _parameters=()):
+            if "information_schema.tables" in statement:
+                self.rows = [(table,) for table in composition_module.EXPECTED_SCHEMA_TABLES]
+            elif "information_schema.columns" in statement:
+                self.rows = list(composition_module.EXPECTED_SCHEMA_COLUMNS)
+            elif "table_constraints" in statement:
+                self.rows = [
+                    (constraint,)
+                    for constraint in composition_module.EXPECTED_SCHEMA_CONSTRAINTS
+                ]
+            elif "pg_constraint" in statement or "pg_indexes" in statement or "pg_trigger" in statement or "pg_proc" in statement:
+                self.rows = []
+
+        def fetchall(self):
+            return self.rows
+
+    class CatalogConnection:
+        def cursor(self):
+            return CatalogCursor()
+
+    signature = verify_final_schema_signature(CatalogConnection())
+
+    assert signature.valid is False, (
+        "EXPECTED_CONTRACT_RED::SCHEMA_013_CRITICAL_SIGNATURE_NOT_ATTESTED"
+    )
+
+
 def test_migration_010_default_is_valid_fail_safe_observe_only():
     result = _composition([_row(), _row()]).boot()
     assert result.posture == OBSERVE_ONLY
@@ -417,6 +485,7 @@ def test_enabled_mode_without_active_envelope_is_missing():
 
 def test_expired_future_and_mismatched_envelopes_are_observe_only():
     now = datetime.now(timezone.utc)
+    stable_state = _row("OPERATIONAL_ENABLED", "env-1")
     cases = (
         (_envelope(valid_until=now - timedelta(seconds=1)), ACTIVE_ENVELOPE_INVALID),
         (_envelope(valid_from=now + timedelta(seconds=1)), ACTIVE_ENVELOPE_INVALID),
@@ -424,7 +493,7 @@ def test_expired_future_and_mismatched_envelopes_are_observe_only():
     )
     for envelope, reason in cases:
         result = _composition(
-            [_row("OPERATIONAL_ENABLED", "env-1"), _row("OPERATIONAL_ENABLED", "env-1")],
+            [stable_state, stable_state],
             envelope,
         ).boot()
         assert result.posture == OBSERVE_ONLY

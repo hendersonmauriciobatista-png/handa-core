@@ -6,6 +6,8 @@
 
 import time
 import threading
+from copy import deepcopy
+from dataclasses import asdict, is_dataclass
 from typing import Dict, Iterable, Optional, Set, List
 
 from core.radar.market_ranking_engine import MarketRankingEngine
@@ -15,6 +17,13 @@ from core.scanner.token_ranker import TokenRanker
 from core.mce.momentum_confirmation_engine import MomentumConfirmationEngine
 from core.selection.selection_policy_engine import SelectionPolicyEngine
 from core.market_quality.service import MarketQualityService
+from core.market.governed_market_observation import (
+    MARKET_CONTEXT,
+    SELECTION_RADAR,
+    build_observation_group,
+    canonical_group_digest,
+)
+from core.execution.authority_digest import sha256_digest
 
 
 class MarketRadarEngine:
@@ -196,6 +205,18 @@ class MarketRadarEngine:
             return str(symbol).strip().upper()
         except Exception:
             return ""
+
+    @staticmethod
+    def _evidence_snapshot(value):
+        """Freeze the exact result consumed by an evidence-only boundary."""
+
+        if is_dataclass(value):
+            return deepcopy(asdict(value))
+        if isinstance(value, dict):
+            return deepcopy(value)
+        if hasattr(value, "__dict__"):
+            return deepcopy(vars(value))
+        return deepcopy(value)
 
     def _rra_bucket(self, value, step: float, default: float = 0.0):
         try:
@@ -410,6 +431,189 @@ class MarketRadarEngine:
                             }
 
         return snapshot
+
+    def _attach_governed_provenance(self, opportunities):
+        """Carry each source group's own evidence through ranking."""
+
+        for item in opportunities or []:
+            provenance = deepcopy(item.get("governed_provenance") or {})
+            source_timestamps = provenance.setdefault("source_group_timestamps", {})
+            source_digests = provenance.setdefault("source_group_digests", {})
+            source_intervals = provenance.setdefault("source_group_intervals", {})
+            source_statuses = provenance.setdefault("source_group_closure_statuses", {})
+            source_server_times = provenance.setdefault("source_group_server_times", {})
+            source_constituent_digests = provenance.setdefault(
+                "source_group_constituent_digests", {}
+            )
+            source_constituents = provenance.setdefault("source_group_constituents", {})
+            source_missing_evidence = provenance.setdefault(
+                "source_group_missing_evidence", {}
+            )
+            source_trust = provenance.setdefault("source_group_trust", {})
+            source_identities = provenance.setdefault("source_group_identities", {})
+            symbol = str(item.get("symbol") or "").strip().upper()
+            price_records = source_constituents.get("PRICE_TECHNICAL") or ()
+            price_ancestry = tuple(
+                str(record.get("observation_id") or record.get("constituent_id"))
+                for record in price_records
+                if isinstance(record, dict)
+                and (record.get("observation_id") or record.get("constituent_id"))
+            )
+
+            def derived(source: str, role: str, carrier: object) -> dict:
+                payload = {
+                    "constituent_kind": "CAUSAL_DERIVED_CONSTITUENT",
+                    "constituent_id": f"{source}:{symbol}:{role}",
+                    "source": source,
+                    "source_component": source,
+                    "symbol": symbol,
+                    "role": role,
+                    "carrier": carrier,
+                    "causal_identity": f"{source}:{symbol}:{role}",
+                    "upstream_market_observation_ids": price_ancestry,
+                    "trustworthy_market_time": False,
+                    "trust_class": "CAUSAL_ONLY",
+                    "missing_evidence": (
+                        ("NO_TRUSTWORTHY_UPSTREAM_MARKET_OBSERVATION",)
+                        if not price_ancestry
+                        else ()
+                    ),
+                }
+                payload["semantic_digest"] = sha256_digest(payload)
+                return payload
+
+            analysis = item.get("analysis") or {}
+            if "_governed_selection_decision_evidence" in item:
+                selection_decision = item["_governed_selection_decision_evidence"]
+            else:
+                selection_decision = item.get("selection_decision")
+            if selection_decision is None:
+                selection_decision = item.get("selection_result")
+            if selection_decision is None:
+                selection_decision = {"selection_score": item.get("selection_score")}
+            if "_governed_mce_result_evidence" in item:
+                mce_result = item["_governed_mce_result_evidence"]
+            else:
+                mce_result = item.get("mce_result")
+            if mce_result is None:
+                mce_result = item.get("momentum_confirmation_result")
+            if mce_result is None:
+                mce_result = {"momentum": analysis.get("momentum")}
+
+            selection_inputs = [
+                derived(
+                    "MarketRankingEngine",
+                    "ranking_result",
+                    item.get("ranking_evidence") or analysis,
+                ),
+                derived(
+                    "SelectionPolicyEngine",
+                    "selection_result",
+                    selection_decision,
+                ),
+                derived(
+                    "MomentumConfirmationEngine",
+                    "mce_result",
+                    mce_result,
+                ),
+            ]
+            if item.get("rra_state") is not None:
+                selection_inputs.append(
+                    derived("RRA", "rra_state", item["rra_state"])
+                )
+            elif item.get("rra_context") is not None:
+                selection_inputs.append(
+                    derived("RRA", "rra_context", item["rra_context"])
+                )
+            lc1_result = item.get("lc1_result")
+            if isinstance(lc1_result, dict) and lc1_result.get("used_for_buy") is True:
+                selection_inputs.append(
+                    derived("LC1", "lc1_result", lc1_result)
+                )
+
+            context_evidence = item.get("_governed_market_context_evidence")
+            context = item.get("market_context") or {}
+            context_inputs = []
+            for role, key in (
+                ("raw_ranking_set", "raw_ranking_set"),
+                ("refined_set", "refined_set"),
+                ("approved_set", "approved_set"),
+                ("liquidity", "liquidity"),
+                ("mqii", "mqii"),
+                ("macro_context", "macro_context"),
+            ):
+                if isinstance(context_evidence, dict) and key in context_evidence:
+                    context_inputs.append(
+                        derived("MarketContextProducer", role, context_evidence[key])
+                    )
+                elif key in context:
+                    context_inputs.append(
+                        derived("MarketContextProducer", role, context[key])
+                    )
+            if (
+                not any(record.get("role") == "mqii" for record in context_inputs)
+                and not isinstance(context_evidence, dict)
+            ):
+                market_quality = getattr(self, "market_quality", None) or {}
+                if market_quality:
+                    context_inputs.append(
+                        derived("MarketQualityService", "mqii", market_quality)
+                    )
+            if not context_inputs:
+                context_inputs.append(
+                    derived("MarketContextProducer", "market_context", context)
+                )
+
+            group_inputs = {
+                SELECTION_RADAR: (
+                    "selection-radar",
+                    tuple(selection_inputs),
+                ),
+                MARKET_CONTEXT: (
+                    "market-context",
+                    tuple(context_inputs),
+                ),
+            }
+            for group_type, (source_name, group_constituents) in group_inputs.items():
+                existing = source_constituents.get(group_type) or ()
+                records = list(existing) + list(group_constituents)
+                group_identity = f"{group_type}:{symbol}:{source_name}"
+                source_identities[group_type] = group_identity
+                source_constituents[group_type] = tuple(records)
+                source_constituent_digests[group_type] = tuple(
+                    str(record.get("semantic_digest", ""))
+                    for record in records
+                    if isinstance(record, dict) and record.get("semantic_digest")
+                )
+                source_timestamps.setdefault(group_type, None)
+                source_intervals.setdefault(group_type, {"oldest": None, "newest": None})
+                source_statuses.setdefault(group_type, "PROVENANCE_INCOMPLETE")
+                source_server_times.setdefault(group_type, None)
+                source_missing_evidence[group_type] = tuple(
+                    sorted(
+                        set(source_missing_evidence.get(group_type, ()))
+                        | {"NO_TRUSTWORTHY_CONSTITUENT_MARKET_TIME"}
+                    )
+                )
+                source_trust[group_type] = "CAUSAL_ONLY"
+                source_digests[group_type] = canonical_group_digest(
+                    group_type=group_type,
+                    group_identity=group_identity,
+                    constituents=records,
+                    market_oldest=None,
+                    market_newest=None,
+                    missing_evidence=source_missing_evidence[group_type],
+                    trust_class=source_trust[group_type],
+                )
+            provenance["dynamic_policy_evidence"] = {
+                "analysis": item.get("analysis") or {},
+                "selection_score": item.get("selection_score"),
+            }
+            provenance["dynamic_risk_evidence"] = {
+                "market_context": item.get("market_context") or {},
+                "market_quality": self.market_quality,
+            }
+            item["governed_provenance"] = provenance
 
     def _normalize_symbol_set(
         self, values: Optional[Iterable], default_cycles: int = 1
@@ -1073,11 +1277,18 @@ class MarketRadarEngine:
             }
 
             adjusted_item["market_context"] = market_context
+            adjusted_item["_governed_market_context_evidence"] = {
+                "liquidity": deepcopy(self.market_liquidity),
+                "mqii": deepcopy(self.market_quality),
+            }
 
             # =========================================================
             # SELECTION POLICY ENGINE (FILTRO SOBERANO)
             # =========================================================
             selection_decision = self.selection_engine.evaluate(adjusted_item)
+            adjusted_item["_governed_selection_decision_evidence"] = (
+                self._evidence_snapshot(selection_decision)
+            )
             adjusted_item["selection_score"] = selection_decision.final_score
 
             if not selection_decision.approved:
@@ -1137,6 +1348,9 @@ class MarketRadarEngine:
             # 🔥 MCE SOFT FILTER — NÃO BLOQUEAR TOTALMENTE
             # ========================================================
             mce_result = self.mce.confirm(adjusted_item)
+            adjusted_item["_governed_mce_result_evidence"] = self._evidence_snapshot(
+                mce_result
+            )
 
             if not mce_result:
                 print(f"[RADAR FILTER] {symbol} MCE fraco (seguindo para decisão)")
@@ -1606,6 +1820,7 @@ class MarketRadarEngine:
                 # MACRO LEADERS INDEX — FASE 1 PASSIVA
                 # BTC/ETH/BNB como sensores macro, sem veto operacional
                 # =========================================================
+                macro_index_snapshot = {}
                 try:
                     macro_symbols = {"BTCUSDC", "ETHUSDC", "BNBUSDC"}
                     macro_items = []
@@ -1696,6 +1911,26 @@ class MarketRadarEngine:
                         f"[MACRO INDEX ERROR] erro ao calcular índice macro | erro={e}"
                     )
 
+                cycle_context_evidence = {
+                    "raw_ranking_set": tuple(
+                        self._safe_symbol(item.get("symbol") or item.get("pair"))
+                        for item in raw_ranking
+                    ),
+                    "refined_set": tuple(
+                        self._safe_symbol(item.get("symbol") or item.get("pair"))
+                        for item in refined
+                    ),
+                    "approved_set": tuple(
+                        self._safe_symbol(item.get("symbol") or item.get("pair"))
+                        for item in filtered
+                    ),
+                    "macro_context": deepcopy(macro_index_snapshot),
+                }
+                for item in filtered:
+                    item.setdefault("_governed_market_context_evidence", {}).update(
+                        cycle_context_evidence
+                    )
+
                 print("[MARKET LIQUIDITY]", liquidity_data)
                 print("[MQII]", mqii_snapshot)
 
@@ -1732,6 +1967,7 @@ class MarketRadarEngine:
                     )
 
                 self.market_quality = mqii_snapshot
+                self._attach_governed_provenance(filtered)
 
                 self.market_liquidity_history.append(liquidity_data.copy())
 

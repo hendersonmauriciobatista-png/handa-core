@@ -27,6 +27,7 @@ from tests.integration.test_submission_authorization_postgres import (
 
 ROOT = Path(__file__).parents[2]
 MIGRATION_012 = ROOT / "core" / "persistence" / "migrations" / "012_governed_transport_submission.sql"
+MIGRATION_013 = ROOT / "core" / "persistence" / "migrations" / "013_pre_execution_provenance_artifact.sql"
 
 
 def _database_url():
@@ -47,6 +48,7 @@ def prepared():
     with psycopg2.connect(url) as connection:
         with connection.cursor() as cursor:
             cursor.execute(MIGRATION_012.read_text(encoding="utf-8"))
+            cursor.execute(MIGRATION_013.read_text(encoding="utf-8"))
         connection.commit()
     try:
         yield url
@@ -250,6 +252,142 @@ def test_matrix_j_missing_migration_011_column_is_observe_only(prepared):
     result = GovernedRuntimeComposition(_config(prepared)).boot()
     assert result.posture == OBSERVE_ONLY
     assert result.reason == "FINAL_SCHEMA_SIGNATURE_INVALID"
+
+
+def test_2b8b_schema_signature_requires_provenance_tables(prepared):
+    result = GovernedRuntimeComposition(_config(prepared)).boot()
+    assert result.schema_signature_status == FINAL_SCHEMA_SIGNATURE_VALID
+    assert result.authority_snapshot is not None
+    assert result.operational_effects_blocked is True
+    assert result.execution_authority == "NOT_GRANTED"
+
+    rows = []
+    with psycopg2.connect(prepared) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema='handa_live'
+                  AND table_name IN (
+                      'governance_artifact_manifest',
+                      'pre_execution_provenance_artifact'
+                  )
+                ORDER BY table_name
+                """
+            )
+            rows = cursor.fetchall()
+
+    assert rows == [
+        ("governance_artifact_manifest",),
+        ("pre_execution_provenance_artifact",),
+    ], "EXPECTED_CONTRACT_RED::2B8B schema tables are not installed"
+
+
+@pytest.mark.parametrize(
+    "mutation, marker",
+    [
+        (
+            "ALTER TABLE handa_live.governance_artifact_manifest "
+            "DROP CONSTRAINT governance_artifact_manifest_digest_uq",
+            "SCHEMA_013_UNIQUE_MISSING",
+        ),
+        (
+            "DROP FUNCTION handa_live.guard_governance_artifact_manifest_immutability() CASCADE",
+            "SCHEMA_013_IMMUTABILITY_FUNCTION_MISSING",
+        ),
+        (
+            "DROP TRIGGER pre_execution_provenance_immutability_guard "
+            "ON handa_live.pre_execution_provenance_artifact",
+            "SCHEMA_013_IMMUTABILITY_TRIGGER_MISSING",
+        ),
+    ],
+)
+def test_schema_signature_rejects_missing_013_safety_objects(
+    prepared, mutation, marker
+):
+    _execute(prepared, mutation)
+
+    result = GovernedRuntimeComposition(_config(prepared)).boot()
+
+    assert result.reason == "FINAL_SCHEMA_SIGNATURE_INVALID", (
+        f"EXPECTED_CONTRACT_RED::{marker}"
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation, marker",
+    [
+        (
+            "ALTER TABLE handa_live.authority_envelope "
+            "DROP CONSTRAINT authority_envelope_strategy_manifest_id_fkey",
+            "SCHEMA_013_AUTHORITY_ENVELOPE_MANIFEST_FK_NOT_ATTESTED",
+        ),
+        (
+            "ALTER TABLE handa_live.pre_execution_provenance_artifact "
+            "DROP CONSTRAINT pre_execution_provenance_artifact_strategy_manifest_id_fkey",
+            "SCHEMA_013_PROVENANCE_MANIFEST_FK_NOT_ATTESTED",
+        ),
+        (
+            "ALTER TABLE handa_live.governance_artifact_manifest "
+            "DROP CONSTRAINT governance_artifact_manifest_pkey CASCADE",
+            "SCHEMA_013_MANIFEST_PRIMARY_KEY_NOT_ATTESTED",
+        ),
+        (
+            "ALTER TABLE handa_live.pre_execution_provenance_artifact "
+            "DROP CONSTRAINT pre_execution_provenance_artifact_pkey",
+            "SCHEMA_013_PROVENANCE_PRIMARY_KEY_NOT_ATTESTED",
+        ),
+        (
+            "ALTER TABLE handa_live.governance_artifact_manifest "
+            "DROP CONSTRAINT governance_artifact_manifest_artifact_type_ck",
+            "SCHEMA_013_ARTIFACT_TYPE_CHECK_NOT_ATTESTED",
+        ),
+        (
+            "ALTER TABLE handa_live.pre_execution_provenance_artifact "
+            "DROP CONSTRAINT pre_execution_provenance_artifact_side_ck",
+            "SCHEMA_013_SIDE_CHECK_NOT_ATTESTED",
+        ),
+        (
+            "ALTER TABLE handa_live.pre_execution_provenance_artifact "
+            "DROP CONSTRAINT pre_execution_provenance_artifact_requested_quote_amount_ck",
+            "SCHEMA_013_REQUESTED_QUOTE_CHECK_NOT_ATTESTED",
+        ),
+        (
+            "ALTER TABLE handa_live.pre_execution_provenance_artifact "
+            "DROP CONSTRAINT pre_execution_provenance_artifact_binding_status_ck",
+            "SCHEMA_013_BINDING_STATUS_CHECK_NOT_ATTESTED",
+        ),
+        (
+            "ALTER TABLE handa_live.governance_artifact_manifest "
+            "DROP CONSTRAINT governance_artifact_manifest_validity_ck",
+            "SCHEMA_013_MANIFEST_VALIDITY_CHECK_NOT_ATTESTED",
+        ),
+        (
+            "ALTER TABLE handa_live.pre_execution_provenance_artifact "
+            "DROP CONSTRAINT pre_execution_provenance_binding_ck",
+            "SCHEMA_013_PROVENANCE_BINDING_CHECK_NOT_ATTESTED",
+        ),
+        (
+            "DROP INDEX handa_live.governance_artifact_manifest_type_validity_idx",
+            "SCHEMA_013_MANIFEST_INDEX_NOT_ATTESTED",
+        ),
+        (
+            "DROP INDEX handa_live.pre_execution_provenance_symbol_recorded_idx",
+            "SCHEMA_013_PROVENANCE_INDEX_NOT_ATTESTED",
+        ),
+    ],
+)
+def test_schema_signature_attests_each_critical_013_catalog_object(
+    prepared, mutation, marker
+):
+    _execute(prepared, mutation)
+
+    result = GovernedRuntimeComposition(_config(prepared)).boot()
+
+    assert result.reason == "FINAL_SCHEMA_SIGNATURE_INVALID", (
+        f"EXPECTED_CONTRACT_RED::{marker}"
+    )
 
 
 def test_s1_s2_authority_state_change_is_observe_only(prepared):

@@ -511,4 +511,3 @@ def source_observation_at(observation: Any) -> Optional[datetime]:
 def application_receipt_at(observation: Any) -> Optional[datetime]:
     value = getattr(observation, "application_receipt_at", None)
     return _utc(value) if value is not None else None
-
